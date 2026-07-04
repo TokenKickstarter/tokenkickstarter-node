@@ -8,7 +8,7 @@
 set -e
 
 VERSION="v0.3.0"
-REPO="https://github.com/tokenkickstarter/tks-node/releases/download"
+REPO="https://github.com/TokenKickstarter/tokenkickstarter-node/releases/download"
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. v0.4.0)'
+        description: 'Release version (e.g. v0.5.0)'
         required: true
 
 env:
@@ -15,15 +15,18 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # ── Build macOS (ARM64 + x86_64) ─────────────────────────
+  # ── macOS: Apple Silicon + Intel ─────────────────────────────────
   build-macos:
-    name: Build macOS
-    runs-on: macos-14  # Apple Silicon
+    name: Build macOS (${{ matrix.arch }})
+    runs-on: macos-14
     strategy:
+      fail-fast: false
       matrix:
-        target:
-          - aarch64-apple-darwin
-          - x86_64-apple-darwin
+        include:
+          - target: aarch64-apple-darwin
+            arch: arm64
+          - target: x86_64-apple-darwin
+            arch: amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -40,48 +43,56 @@ jobs:
             ~/.cargo/git
             target
           key: macos-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: macos-${{ matrix.target }}-
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary
+      - name: Package binary
         run: |
           VERSION="${{ github.ref_name || github.event.inputs.version }}"
-          ARCH=$(echo "${{ matrix.target }}" | sed 's/-apple-darwin//' | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/')
           cp target/${{ matrix.target }}/release/tks-chain-node \
-             tks-chain-node-${VERSION}-macos-${ARCH}
+             tks-chain-node-${VERSION}-macos-${{ matrix.arch }}
+          chmod +x tks-chain-node-${VERSION}-macos-${{ matrix.arch }}
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.target }}
+          name: macos-${{ matrix.arch }}
           path: tks-chain-node-*
 
-  # ── Build Linux (AMD64 + ARM64) ──────────────────────────
+  # ── Linux: x86_64 + ARM64 ────────────────────────────────────────
   build-linux:
-    name: Build Linux
+    name: Build Linux (${{ matrix.arch }})
     runs-on: ubuntu-22.04
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
             arch: amd64
+            cross: false
           - target: aarch64-unknown-linux-gnu
             arch: arm64
             cross: true
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config libssl-dev \
+            clang libclang-dev protobuf-compiler
+
+      - name: Install cross-compilation tools (ARM64 only)
+        if: matrix.cross
+        run: |
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
-      - name: Install cross-compilation tools
-        if: matrix.cross
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -91,27 +102,29 @@ jobs:
             ~/.cargo/git
             target
           key: linux-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: linux-${{ matrix.target }}-
 
       - name: Build
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          PKG_CONFIG_SYSROOT_DIR: /
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary
+      - name: Package binary
         run: |
           VERSION="${{ github.ref_name || github.event.inputs.version }}"
           cp target/${{ matrix.target }}/release/tks-chain-node \
              tks-chain-node-${VERSION}-linux-${{ matrix.arch }}
+          chmod +x tks-chain-node-${VERSION}-linux-${{ matrix.arch }}
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.target }}
+          name: linux-${{ matrix.arch }}
           path: tks-chain-node-*
 
-  # ── Build Windows ────────────────────────────────────────
+  # ── Windows: x86_64 ──────────────────────────────────────────────
   build-windows:
-    name: Build Windows
+    name: Build Windows (amd64)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -126,25 +139,31 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: windows-${{ hashFiles('**/Cargo.lock') }}
+          key: windows-amd64-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: windows-amd64-
+
+      - name: Install LLVM/Clang (required by rocksdb)
+        run: choco install llvm -y
+        shell: powershell
 
       - name: Build
         run: cargo build --release
+        env:
+          LIBCLANG_PATH: 'C:\Program Files\LLVM\bin'
 
-      - name: Rename binary
+      - name: Package binary
         shell: bash
         run: |
           VERSION="${{ github.ref_name || github.event.inputs.version }}"
           cp target/release/tks-chain-node.exe \
              tks-chain-node-${VERSION}-windows-amd64.exe
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: windows-amd64
           path: tks-chain-node-*.exe
 
-  # ── Generate Chainspec & Create Release ──────────────────
+  # ── Create GitHub Release ─────────────────────────────────────────
   release:
     name: Create Release
     needs: [build-macos, build-linux, build-windows]
@@ -159,43 +178,48 @@ jobs:
         with:
           path: artifacts
 
-      - name: Flatten artifacts
+      - name: Collect release files
         run: |
           mkdir -p release-files
           find artifacts -type f -exec cp {} release-files/ \;
-          ls -la release-files/
 
-      - name: Install Rust (for chainspec generation)
+          # Copy network scripts
+          cp network/start-node.sh       release-files/
+          cp network/start-node.bat      release-files/
+          cp network/start-validator.sh  release-files/
+          cp network/start-bootnode.sh   release-files/
+          cp network/inject-validator-keys.sh release-files/
+          cp network/purge-chain.sh      release-files/
+          cp network/install.sh          release-files/
+          cp network/server-setup.sh     release-files/
+          cp network/tks-node.service    release-files/
+          cp network/tks-bootnode.service release-files/
+          cp network/README.md           release-files/
+          chmod +x release-files/*.sh
+
+          ls -lh release-files/
+
+      - name: Install Rust (for chainspec)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build native binary for chainspec
-        run: cargo build --release --target x86_64-unknown-linux-gnu
+      - name: Install system deps for chainspec build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev clang libclang-dev protobuf-compiler
+
+      - name: Build native binary for chainspec generation
+        run: cargo build --release
 
       - name: Generate chainspec files
         run: |
-          ./target/x86_64-unknown-linux-gnu/release/tks-chain-node \
+          ./target/release/tks-chain-node \
             build-spec --chain=local > release-files/tks-testnet-spec.json
-          ./target/x86_64-unknown-linux-gnu/release/tks-chain-node \
+          ./target/release/tks-chain-node \
             build-spec --chain=release-files/tks-testnet-spec.json --raw \
             > release-files/tks-testnet-spec-raw.json
-          echo "Chainspec files generated"
+          echo "✅ Chainspec generated"
 
-      - name: Copy network scripts
-        run: |
-          cp network/start-node.sh release-files/
-          cp network/start-node.bat release-files/
-          cp network/start-validator.sh release-files/
-          cp network/start-bootnode.sh release-files/
-          cp network/inject-validator-keys.sh release-files/
-          cp network/purge-chain.sh release-files/
-          cp network/install.sh release-files/
-          cp network/server-setup.sh release-files/
-          cp network/tks-node.service release-files/
-          cp network/tks-bootnode.service release-files/
-          cp network/README.md release-files/
-          chmod +x release-files/*.sh
-
-      - name: Generate checksums
+      - name: Generate SHA256 checksums
         run: |
           cd release-files
           sha256sum * > SHA256SUMS.txt
@@ -204,44 +228,70 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: TKS Node ${{ github.ref_name }}
+          name: TKS Node ${{ github.ref_name || github.event.inputs.version }}
           body: |
-            ## TKS Node Release ${{ github.ref_name }}
+            ## 🚀 TKS Node ${{ github.ref_name || github.event.inputs.version }}
+
+            > Layer-1 Substrate blockchain with EVM compatibility, HyperSwarm DHT anchoring,
+            > adaptive gas, native NFTs, and free name registry on 1-second blocks.
+
+            ---
 
             ### Downloads
 
             | Platform | Architecture | File |
             |----------|-------------|------|
-            | macOS | Apple Silicon (M1/M2/M3) | `tks-chain-node-*-macos-arm64` |
-            | macOS | Intel | `tks-chain-node-*-macos-amd64` |
-            | Linux | x86_64 | `tks-chain-node-*-linux-amd64` |
-            | Linux | ARM64 | `tks-chain-node-*-linux-arm64` |
-            | Windows | x86_64 | `tks-chain-node-*-windows-amd64.exe` |
+            | 🍎 macOS | Apple Silicon (M1/M2/M3/M4) | `tks-chain-node-*-macos-arm64` |
+            | 🍎 macOS | Intel (x86_64) | `tks-chain-node-*-macos-amd64` |
+            | 🐧 Linux | x86_64 (servers, VPS) | `tks-chain-node-*-linux-amd64` |
+            | 🐧 Linux | ARM64 (Raspberry Pi, VPS) | `tks-chain-node-*-linux-arm64` |
+            | 🪟 Windows | x86_64 | `tks-chain-node-*-windows-amd64.exe` |
 
-            ### Quick Start
+            ---
+
+            ### ⚡ Quick Install (Linux/macOS)
 
             ```bash
-            # Mac/Linux one-liner
-            curl -sSf https://raw.githubusercontent.com/tokenkickstarter/tks-node/${{ github.ref_name }}/network/install.sh | bash
+            curl -sSf https://raw.githubusercontent.com/TokenKickstarter/tokenkickstarter-node/${{ github.ref_name }}/network/install.sh | bash
             ```
 
-            ### Join the Network
+            ### 🔌 Join the TKS Network
 
             ```bash
             ./tks-chain-node \
               --chain tks-testnet-spec-raw.json \
-              --bootnodes /ip4/BOOTNODE_IP/tcp/30333/p2p/12D3KooWNaz3nEXYRCWJUtEFXrpo2DpiuM1XuRuZ9HsKR2GDh9tT \
               --base-path ~/.tks/data \
-              --rpc-external --rpc-cors all
+              --rpc-external --rpc-cors all \
+              --name "MyNode"
             ```
 
-            ### Network Info
-            - Token: **TKS** (18 decimals)
-            - Consensus: **Aura + GRANDPA**
-            - P2P Port: **30333**
-            - RPC Port: **9944**
+            ### ⛏️ Run as Validator
 
-            See [README.md](./README.md) for full documentation.
+            ```bash
+            # See network/start-validator.sh for full setup
+            ./tks-chain-node \
+              --chain tks-testnet-spec-raw.json \
+              --validator \
+              --name "MyValidator"
+            ```
+
+            ---
+
+            ### Network Info
+
+            | | |
+            |-|-|
+            | **Chain ID** | 7779 (`0x1E63`) |
+            | **Token** | TKS (18 decimals) |
+            | **Block Time** | ~1 second |
+            | **Consensus** | Aura + GRANDPA |
+            | **P2P Port** | 30333 |
+            | **RPC Port** | 9944 |
+
+            ---
+
+            See [README.md](https://github.com/TokenKickstarter/tokenkickstarter-node#readme) for full documentation.
           files: release-files/*
           draft: false
           prerelease: false
+          tag_name: ${{ github.ref_name || github.event.inputs.version }}

@@ -52,7 +52,7 @@ case "$ARCH" in
   *)       echo "❌ Unsupported arch: $ARCH"; exit 1 ;;
 esac
 
-BINARY_URL="https://github.com/tokenkickstarter/tks-node/releases/download/${VERSION}/tks-chain-node-${VERSION}-linux-${ARCH_SUFFIX}"
+BINARY_URL="https://github.com/TokenKickstarter/tokenkickstarter-node/releases/download/${VERSION}/tks-chain-node-${VERSION}-linux-${ARCH_SUFFIX}"
 echo "   Downloading from: $BINARY_URL"
 curl -L --progress-bar "$BINARY_URL" -o /opt/tks/tks-chain-node
 chmod +x /opt/tks/tks-chain-node
@@ -62,7 +62,7 @@ chmod +x /opt/tks/tks-chain-node
 
 # ── 4. Install chainspec ─────────────────────────────────────
 echo ">> Installing chainspec..."
-CHAINSPEC_URL="https://github.com/tokenkickstarter/tks-node/releases/download/${VERSION}/tks-testnet-spec-raw.json"
+CHAINSPEC_URL="https://github.com/TokenKickstarter/tokenkickstarter-node/releases/download/${VERSION}/tks-testnet-spec-raw.json"
 curl -L --progress-bar "$CHAINSPEC_URL" -o /opt/tks/tks-testnet-spec-raw.json
 
 # ── 5. Bootnode key (bootnode only) ──────────────────────────
