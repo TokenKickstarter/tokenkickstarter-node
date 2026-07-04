@@ -15,28 +15,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ─── Linux x86_64 ──────────────────────────────────────────
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             artifact_name: tks-chain-node-linux-x86_64
             binary_name: tks-chain-node
             archive_ext: tar.gz
 
-          # ─── macOS ARM64 (Apple Silicon) ──────────────────────────
           - os: macos-14
             target: aarch64-apple-darwin
             artifact_name: tks-chain-node-macos-arm64
             binary_name: tks-chain-node
             archive_ext: tar.gz
 
-          # ─── macOS x86_64 (Intel) ─────────────────────────────────
           - os: macos-13
             target: x86_64-apple-darwin
             artifact_name: tks-chain-node-macos-x86_64
             binary_name: tks-chain-node
             archive_ext: tar.gz
 
-          # ─── Windows x86_64 ───────────────────────────────────────
           - os: windows-2022
             target: x86_64-pc-windows-msvc
             artifact_name: tks-chain-node-windows-x86_64
@@ -49,10 +45,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
+      # rust-toolchain.toml (channel = "stable") drives the version.
+      # We only add extra targets here — no pinned version override.
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.94.0"
           targets: wasm32-unknown-unknown,${{ matrix.target }}
           components: rust-src
 
@@ -63,157 +60,125 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target/
-          key: ${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.target }}-cargo-v2-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ matrix.target }}-cargo-
+            ${{ matrix.target }}-cargo-v2-
 
-      # ─── Platform-specific dependencies ─────────────────────────
+      # Platform deps
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libclang-dev build-essential
+          sudo apt-get install -y \
+            protobuf-compiler libclang-dev \
+            build-essential pkg-config libssl-dev \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Install Dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install protobuf
+        run: |
+          HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install protobuf llvm || true
 
       - name: Install Dependencies (Windows)
         if: runner.os == 'Windows'
-        run: choco install protoc llvm -y
+        run: |
+          choco install llvm protoc -y
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $GITHUB_ENV
+        shell: bash
 
-      # ─── Build ──────────────────────────────────────────────────
-      - name: Build Release Binary
-        run: cargo build --release -p tks-chain-node --target ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
-      - name: Verify Binary
+      - name: Package (tar.gz)
+        if: matrix.archive_ext == 'tar.gz'
+        run: |
+          VERSION="${GITHUB_REF_NAME:-dev}"
+          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} \
+             ${{ matrix.artifact_name }}
+          tar -czf ${{ matrix.artifact_name }}-${VERSION}.tar.gz \
+              ${{ matrix.artifact_name }}
+
+      - name: Package (zip)
+        if: matrix.archive_ext == 'zip'
         shell: bash
         run: |
-          BINARY="target/${{ matrix.target }}/release/${{ matrix.binary_name }}"
-          echo "Binary size: $(ls -lh $BINARY | awk '{print $5}')"
-          echo "Binary type: $(file $BINARY)"
+          VERSION="${GITHUB_REF_NAME:-dev}"
+          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} \
+             ${{ matrix.artifact_name }}.exe
+          7z a ${{ matrix.artifact_name }}-${VERSION}.zip \
+              ${{ matrix.artifact_name }}.exe
 
-      # ─── Package ────────────────────────────────────────────────
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          BINARY="target/${{ matrix.target }}/release/${{ matrix.binary_name }}"
-          cp "$BINARY" "${{ matrix.artifact_name }}"
-          chmod +x "${{ matrix.artifact_name }}"
-          tar -czf "${{ matrix.artifact_name }}.tar.gz" "${{ matrix.artifact_name }}"
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $binary = "target/${{ matrix.target }}/release/${{ matrix.binary_name }}"
-          Copy-Item $binary "${{ matrix.artifact_name }}.exe"
-          Compress-Archive -Path "${{ matrix.artifact_name }}.exe" -DestinationPath "${{ matrix.artifact_name }}.zip"
-
-      # ─── Upload ─────────────────────────────────────────────────
-      - name: Upload Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}.${{ matrix.archive_ext }}
-          retention-days: 30
+          path: ${{ matrix.artifact_name }}-*
 
-  # ─── Docker Image ─────────────────────────────────────────────────
-  docker:
-    runs-on: ubuntu-22.04
-    needs: build
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download Linux binary
-        uses: actions/download-artifact@v4
-        with:
-          name: tks-chain-node-linux-x86_64
-
-      - name: Extract binary
-        run: |
-          tar -xzf tks-chain-node-linux-x86_64.tar.gz
-          chmod +x tks-chain-node-linux-x86_64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker Image
-        run: |
-          cat > Dockerfile.ci << 'EOF'
-          FROM ubuntu:22.04
-          RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-          RUN useradd -m -u 1000 -U -s /bin/sh tks && mkdir -p /data && chown -R tks:tks /data
-          WORKDIR /app
-          COPY tks-chain-node-linux-x86_64 /app/tks-chain-node
-          RUN chmod +x /app/tks-chain-node && chown -R tks:tks /app
-          EXPOSE 30333 9944 9933 4002
-          USER tks
-          ENTRYPOINT ["/app/tks-chain-node", "-d", "/data"]
-          EOF
-          docker build -f Dockerfile.ci -t tks-chain-node:latest .
-          docker save tks-chain-node:latest | gzip > tks-chain-node-docker.tar.gz
-
-      - name: Upload Docker Image
-        uses: actions/upload-artifact@v4
-        with:
-          name: tks-chain-node-docker
-          path: tks-chain-node-docker.tar.gz
-          retention-days: 30
-
-  # ─── GitHub Release ───────────────────────────────────────────────
   release:
-    needs: [build, docker]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: Create GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
-
     steps:
-      - name: Download all artifacts
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/
+          path: artifacts
 
-      - name: Create GitHub Release
+      - name: Collect files
+        run: |
+          mkdir -p release-files
+          find artifacts -type f -exec cp {} release-files/ \;
+          cp network/start-node.sh network/start-node.bat \
+             network/start-validator.sh network/start-bootnode.sh \
+             network/inject-validator-keys.sh network/purge-chain.sh \
+             network/install.sh network/server-setup.sh \
+             network/tks-node.service network/tks-bootnode.service \
+             network/README.md release-files/
+          chmod +x release-files/*.sh
+          ls -lh release-files/
+
+      - name: SHA256 checksums
+        run: cd release-files && sha256sum * > SHA256SUMS.txt
+
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            artifacts/tks-chain-node-linux-x86_64/*.tar.gz
-            artifacts/tks-chain-node-macos-arm64/*.tar.gz
-            artifacts/tks-chain-node-macos-x86_64/*.tar.gz
-            artifacts/tks-chain-node-windows-x86_64/*.zip
-            artifacts/tks-chain-node-docker/*.tar.gz
+          name: "TKS Node ${{ github.ref_name }}"
+          body: |
+            ## TKS Node ${{ github.ref_name }}
+
+            Layer-1 Substrate blockchain with EVM compatibility, HyperSwarm DHT anchoring, adaptive gas, native NFTs, and 1-second block finality.
+
+            ### Downloads
+
+            | Platform | Architecture | File |
+            |----------|-------------|------|
+            | macOS | Apple Silicon (M1/M2/M3/M4) | `tks-chain-node-macos-arm64-*.tar.gz` |
+            | macOS | Intel (x86_64) | `tks-chain-node-macos-x86_64-*.tar.gz` |
+            | Linux | x86_64 | `tks-chain-node-linux-x86_64-*.tar.gz` |
+            | Windows | x86_64 | `tks-chain-node-windows-x86_64-*.zip` |
+
+            ### Quick Install (Linux/macOS)
+
+            ```bash
+            curl -sSf https://raw.githubusercontent.com/TokenKickstarter/tokenkickstarter-node/${{ github.ref_name }}/network/install.sh | bash
+            ```
+
+            ### Network Info
+
+            | | |
+            |-|-|
+            | Chain ID | 7779 (`0x1E63`) |
+            | Token | TKS (18 decimals) |
+            | Block Time | 1 second |
+            | RPC Port | 9944 |
+          files: release-files/*
           draft: false
           prerelease: false
-          generate_release_notes: true
-          body: |
-            ## TKS Chain Node Release
-
-            ### New in this release
-            - **pallet-shard-registry** — HyperSwarm shard ↔ validator mapping with VRF rotation
-            - **pallet-hyperswarm-anchor** — DAG Merkle root anchoring with fisherman challenges
-            - Runtime spec_version: 300
-
-            ### Download
-            | Platform | File |
-            |----------|------|
-            | Linux x86_64 | `tks-chain-node-linux-x86_64.tar.gz` |
-            | macOS ARM64 (Apple Silicon) | `tks-chain-node-macos-arm64.tar.gz` |
-            | macOS x86_64 (Intel) | `tks-chain-node-macos-x86_64.tar.gz` |
-            | Windows x86_64 | `tks-chain-node-windows-x86_64.zip` |
-            | Docker | `tks-chain-node-docker.tar.gz` |
-
-            ### Run
-            ```bash
-            # Linux / macOS
-            chmod +x tks-chain-node-*
-            ./tks-chain-node-* --dev
-
-            # Docker
-            docker load < tks-chain-node-docker.tar.gz
-            docker run -p 9944:9944 -p 30333:30333 tks-chain-node --dev
-            ```

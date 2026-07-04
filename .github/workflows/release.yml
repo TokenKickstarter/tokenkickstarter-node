@@ -42,7 +42,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: macos-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          key: macos-v2-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: macos-${{ matrix.target }}-
 
       - name: Build
@@ -101,7 +101,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: linux-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          key: linux-v2-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: linux-${{ matrix.target }}-
 
       - name: Build
@@ -139,7 +139,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: windows-amd64-${{ hashFiles('**/Cargo.lock') }}
+          key: windows-v2-amd64-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: windows-amd64-
 
       - name: Install LLVM/Clang (required by rocksdb)
