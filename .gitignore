@@ -1,28 +1,51 @@
-# Build artifacts
+# ── Build Artifacts ─────────────────────────────────────────────────
 /target/
 **/target/
 
-# Node logs
-*.log
-node_output*.log
-
-# Rust
+# ── Rust ────────────────────────────────────────────────────────────
 **/*.rs.bk
-Cargo.lock.bk
 
-# IDE
+# ── IDE ─────────────────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# macOS
+# ── macOS ───────────────────────────────────────────────────────────
 .DS_Store
 **/.DS_Store
 
-# Secrets / keys (use network/ scripts to manage)
-*.key.secret
-secrets/
+# ── Node Logs (never commit operational logs) ────────────────────────
+*.log
+node_output*.log
 
-# Compiled test binaries
+# ── Bootnode / Validator Private Keys ───────────────────────────────
+# These are libp2p network identity keys. Generate them per-server.
+# See: ./target/release/tks-chain-node key generate-node-key
+network/bootnode.key
+network/bootnodes/*.key
+*.nodekey
+network/keystore/
+keystore/
+
+# ── Compiled Node Binaries ──────────────────────────────────────────
+# Binary releases belong in GitHub Releases, not the repo.
+# Use GitHub Actions (.github/workflows/release.yml) to publish.
+releases/**/*-macos-arm64
+releases/**/*-linux-x86_64
+releases/**/*-linux-arm64
+releases/**/*-windows-x86_64.exe
+*.node-binary
+
+# ── Test Artifacts ──────────────────────────────────────────────────
 test_sig
+/tmp/
+calc-ecdsa/target/
+
+# ── Secrets / Environment ────────────────────────────────────────────
+.env
+.env.*
+secrets/
+*.secret
+*.pem
+*.p12
