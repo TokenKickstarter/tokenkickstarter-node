@@ -1,0 +1,131 @@
+version: '3.8'
+
+# ============================================================
+#  TKS Network — 3-Server Bootnode Stack
+#
+#  Deploy each service on its own server:
+#    Server 1 (US):   docker compose up -d tks-seed-1
+#    Server 2 (EU):   docker compose up -d tks-seed-2
+#    Server 3 (Asia): docker compose up -d tks-seed-3
+#
+#  DNS Setup (set A records for each server's IP):
+#    Server 1: seed.tokenkickstarter.com, seed.tokenkickstarter.ink
+#    Server 2: seed.tkstoken.com, seed.tokenkickstarter.xyz
+#    Server 3: seed.tksscan.com, seed.tokenkickstarter.pw
+# ============================================================
+
+services:
+
+  # ── Server 1: seed.tokenkickstarter.com ──────────────────
+  tks-seed-1:
+    image: ubuntu:22.04
+    container_name: tks-seed-1
+    restart: unless-stopped
+    ports:
+      - "30333:30333"   # P2P — must be publicly reachable
+      - "9944:9944"     # RPC
+    volumes:
+      - ./tks-testnet-spec-raw.json:/chainspec.json:ro
+      - ./bootnodes/bootnode-1.key:/bootnode.key:ro
+      - tks-seed-1-data:/data
+      - ./tks-chain-node:/usr/local/bin/tks-chain-node:ro
+    command: >
+      tks-chain-node
+      --chain /chainspec.json
+      --base-path /data
+      --node-key-file /bootnode.key
+      --port 30333
+      --rpc-port 9944
+      --rpc-external
+      --rpc-cors all
+      --name TKS-Seed-1
+      --validator
+      --log info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9944/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "traefik.enable=false"
+      - "tks.role=bootnode"
+      - "tks.dns=seed.tokenkickstarter.com,seed.tokenkickstarter.ink"
+      - "tks.peer_id=12D3KooWEgkL3KD5NT7zHiXgRh61YV5c9vsgzfBzZHr2bWG5ga6C"
+
+  # ── Server 2: seed.tkstoken.com ──────────────────────────
+  tks-seed-2:
+    image: ubuntu:22.04
+    container_name: tks-seed-2
+    restart: unless-stopped
+    ports:
+      - "30333:30333"
+      - "9944:9944"
+    volumes:
+      - ./tks-testnet-spec-raw.json:/chainspec.json:ro
+      - ./bootnodes/bootnode-2.key:/bootnode.key:ro
+      - tks-seed-2-data:/data
+      - ./tks-chain-node:/usr/local/bin/tks-chain-node:ro
+    command: >
+      tks-chain-node
+      --chain /chainspec.json
+      --base-path /data
+      --node-key-file /bootnode.key
+      --port 30333
+      --rpc-port 9944
+      --rpc-external
+      --rpc-cors all
+      --name TKS-Seed-2
+      --validator
+      --log info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9944/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "tks.role=bootnode"
+      - "tks.dns=seed.tkstoken.com,seed.tokenkickstarter.xyz"
+      - "tks.peer_id=12D3KooWADUbEfUqDAnhFBYEVKcERnS2fW5Fy2JiJuRBisqrQ8nR"
+
+  # ── Server 3: seed.tksscan.com ───────────────────────────
+  tks-seed-3:
+    image: ubuntu:22.04
+    container_name: tks-seed-3
+    restart: unless-stopped
+    ports:
+      - "30333:30333"
+      - "9944:9944"
+    volumes:
+      - ./tks-testnet-spec-raw.json:/chainspec.json:ro
+      - ./bootnodes/bootnode-3.key:/bootnode.key:ro
+      - tks-seed-3-data:/data
+      - ./tks-chain-node:/usr/local/bin/tks-chain-node:ro
+    command: >
+      tks-chain-node
+      --chain /chainspec.json
+      --base-path /data
+      --node-key-file /bootnode.key
+      --port 30333
+      --rpc-port 9944
+      --rpc-external
+      --rpc-cors all
+      --name TKS-Seed-3
+      --validator
+      --log info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9944/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "tks.role=bootnode"
+      - "tks.dns=seed.tksscan.com,seed.tokenkickstarter.pw"
+      - "tks.peer_id=12D3KooWDJwaet3SPVZDv7cC8Aq22BXwNC7kEzBNARSebsR2obn8"
+
+volumes:
+  tks-seed-1-data:
+  tks-seed-2-data:
+  tks-seed-3-data:

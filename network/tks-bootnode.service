@@ -1,0 +1,34 @@
+[Unit]
+Description=TKS Blockchain Bootnode
+Documentation=https://docs.tks.network
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tks
+Group=tks
+WorkingDirectory=/opt/tks
+ExecStart=/opt/tks/tks-chain-node \
+    --chain /opt/tks/tks-testnet-spec-raw.json \
+    --base-path /var/lib/tks-bootnode \
+    --node-key-file /opt/tks/bootnode.key \
+    --port 30333 \
+    --rpc-port 9944 \
+    --rpc-external \
+    --rpc-cors all \
+    --name TKS-Bootnode-1 \
+    --validator \
+    --log info
+
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+LimitNPROC=65535
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/tks-bootnode
+
+[Install]
+WantedBy=multi-user.target

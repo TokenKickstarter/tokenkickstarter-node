@@ -1,14 +1,20 @@
 //! # TKS Name Registry Pallet
 //!
-//! Provides optional on-chain global username registration for Cipher identities.
-//! Users register a human-readable `@username` that maps to their Substrate AccountId.
+//! Provides on-chain global username registration for Cipher identities.
+//! Users register a human-readable `@username` that maps to their H160 address.
 //!
 //! ## Features
 //! - Register a unique username (3–32 chars, alphanumeric + underscore)
 //! - Release a username
 //! - Reverse lookup (AccountId → username)
-//! - Registration fee burned or sent to treasury
+//! - **100% FREE — no registration fee, no transaction fee (`Pays::No`)**
+//! - Anti-spam: one username per account
 //! - Username transfer support
+//!
+//! ## How It's Free
+//! All extrinsics return `Pays::No`, which tells Substrate's transaction
+//! payment system to NOT charge the sender. Anti-spam is enforced by the
+//! one-username-per-account rule instead of fees.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -18,26 +24,15 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use frame_support::{
-        pallet_prelude::*,
-        traits::{Currency, ExistenceRequirement, ReservableCurrency},
-    };
+    use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use alloc::vec::Vec;
-    use sp_runtime::traits::Zero;
-
-    type BalanceOf<T> =
-        <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
     #[pallet::config]
     pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
-
-        /// Currency used for registration fees.
-        type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
-
         /// Maximum length for a username (default: 32).
         #[pallet::constant]
         type MaxNameLength: Get<u32>;
@@ -45,14 +40,6 @@ pub mod pallet {
         /// Minimum length for a username (default: 3).
         #[pallet::constant]
         type MinNameLength: Get<u32>;
-
-        /// Fee charged for registering a username (in TKS).
-        #[pallet::constant]
-        type RegistrationFee: Get<BalanceOf<Self>>;
-
-        /// Treasury account that receives registration fees.
-        /// If None, the fee is burned.
-        type TreasuryAccount: Get<Option<Self::AccountId>>;
     }
 
     // ─── Storage ───────────────────────────────────────────────────────
@@ -119,38 +106,40 @@ pub mod pallet {
         InvalidCharacter,
         /// Caller does not own this username.
         NotOwner,
-        /// Insufficient balance to pay the registration fee.
-        InsufficientBalance,
+
         /// Account already has a registered username.
         AlreadyRegistered,
         /// Username does not exist.
         NameNotFound,
+        /// Invalid Signature for Unsigned Registration.
+        InvalidSignature,
     }
 
     // ─── Extrinsics ────────────────────────────────────────────────────
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Register a global username (optional, costs a small fee).
-        ///
-        /// - Username must be 3–32 characters, lowercase alphanumeric + underscore only.
-        /// - Registration fee is sent to the treasury (or burned if no treasury configured).
-        /// - Each account can only have ONE username at a time.
-        #[pallet::call_index(0)]
-        #[pallet::weight(Weight::from_parts(50_000_000, 0).saturating_add(T::DbWeight::get().reads_writes(3, 3)))]
-        pub fn register(
+        /// Register a global username — 100% FREE, forever.
+        /// Unsigned Extrinsic to bypass Transaction Pool non-existent account checks.
+        #[pallet::call_index(3)]
+        #[pallet::weight((
+            Weight::from_parts(50_000_000, 0).saturating_add(T::DbWeight::get().reads_writes(3, 3)),
+            Pays::No
+        ))]
+        pub fn register_unsigned(
             origin: OriginFor<T>,
             name: BoundedVec<u8, T::MaxNameLength>,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
+            owner: T::AccountId,
+            signature: [u8; 65],
+        ) -> DispatchResultWithPostInfo {
+            ensure_none(origin)?;
 
-            // Validate name length
+            // Valdiate Name Length
             ensure!(
                 name.len() >= T::MinNameLength::get() as usize,
                 Error::<T>::NameTooShort
             );
 
-            // Validate characters (lowercase a-z, 0-9, underscore only)
             for &byte in name.iter() {
                 ensure!(
                     byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_',
@@ -158,60 +147,94 @@ pub mod pallet {
                 );
             }
 
-            // Check name availability
+            // Check availability
             ensure!(!Names::<T>::contains_key(&name), Error::<T>::NameTaken);
 
-            // Check account doesn't already have a username
+            // Check account hasn't already registered
+            ensure!(
+                !ReverseLookup::<T>::contains_key(&owner),
+                Error::<T>::AlreadyRegistered
+            );
+
+            // Verify signature again defensively (though ValidateUnsigned does this too)
+            let mut payload = name.to_vec();
+            payload.extend_from_slice(b"register");
+            let mut msg_hash = [0u8; 32];
+            msg_hash.copy_from_slice(sp_io::hashing::keccak_256(&payload).as_slice());
+            
+            let recovered_pubkey = sp_io::crypto::secp256k1_ecdsa_recover(&signature, &msg_hash)
+                .map_err(|_| Error::<T>::InvalidSignature)?;
+            let mut recovered_addr = [0u8; 20];
+            recovered_addr.copy_from_slice(&sp_io::hashing::keccak_256(&recovered_pubkey)[12..]);
+            
+            ensure!(
+                owner.encode() == recovered_addr.encode(),
+                Error::<T>::InvalidSignature
+            );
+
+            // Register
+            Names::<T>::insert(&name, &owner);
+            ReverseLookup::<T>::insert(&owner, &name);
+            TotalNames::<T>::mutate(|n| *n = n.saturating_add(1));
+
+            // Make sufficient
+            frame_system::Pallet::<T>::inc_sufficients(&owner);
+
+            Self::deposit_event(Event::NameRegistered { name, owner });
+            Ok(Pays::No.into())
+        }
+
+        /// Legacy register (now disabled or kept for compatibility, we'll replace the index 0 with a deprecation or just replace it)
+        #[pallet::call_index(0)]
+        #[pallet::weight((
+            Weight::from_parts(50_000_000, 0).saturating_add(T::DbWeight::get().reads_writes(3, 3)),
+            Pays::No
+        ))]
+        pub fn register(
+            origin: OriginFor<T>,
+            name: BoundedVec<u8, T::MaxNameLength>,
+        ) -> DispatchResultWithPostInfo {
+            let who = ensure_signed(origin)?;
+
+            ensure!(
+                name.len() >= T::MinNameLength::get() as usize,
+                Error::<T>::NameTooShort
+            );
+
+            for &byte in name.iter() {
+                ensure!(
+                    byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_',
+                    Error::<T>::InvalidCharacter
+                );
+            }
+
+            ensure!(!Names::<T>::contains_key(&name), Error::<T>::NameTaken);
+
             ensure!(
                 !ReverseLookup::<T>::contains_key(&who),
                 Error::<T>::AlreadyRegistered
             );
 
-            // Charge registration fee
-            let fee = T::RegistrationFee::get();
-            if !fee.is_zero() {
-                match T::TreasuryAccount::get() {
-                    Some(treasury) => {
-                        // Transfer fee to treasury
-                        T::Currency::transfer(
-                            &who,
-                            &treasury,
-                            fee,
-                            ExistenceRequirement::KeepAlive,
-                        )?;
-                    }
-                    None => {
-                        // Burn the fee (slash from free balance)
-                        let _ = T::Currency::withdraw(
-                            &who,
-                            fee,
-                            frame_support::traits::WithdrawReasons::FEE,
-                            ExistenceRequirement::KeepAlive,
-                        )?;
-                    }
-                }
-            }
-
-            // Store the registration
             Names::<T>::insert(&name, &who);
             ReverseLookup::<T>::insert(&who, &name);
             TotalNames::<T>::mutate(|n| *n = n.saturating_add(1));
 
-            Self::deposit_event(Event::NameRegistered {
-                name,
-                owner: who,
-            });
+            frame_system::Pallet::<T>::inc_sufficients(&who);
 
-            Ok(())
+            Self::deposit_event(Event::NameRegistered { name, owner: who });
+
+            Ok(Pays::No.into())
         }
 
-        /// Release your username, freeing it for others to register.
         #[pallet::call_index(1)]
-        #[pallet::weight(Weight::from_parts(30_000_000, 0).saturating_add(T::DbWeight::get().reads_writes(2, 3)))]
+        #[pallet::weight((
+            Weight::from_parts(30_000_000, 0).saturating_add(T::DbWeight::get().reads_writes(2, 3)),
+            Pays::No
+        ))]
         pub fn release(
             origin: OriginFor<T>,
             name: BoundedVec<u8, T::MaxNameLength>,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             let who = ensure_signed(origin)?;
 
             let owner = Names::<T>::get(&name).ok_or(Error::<T>::NameNotFound)?;
@@ -226,31 +249,29 @@ pub mod pallet {
                 owner: who,
             });
 
-            Ok(())
+            Ok(Pays::No.into())
         }
 
-        /// Transfer your username to another account.
-        ///
-        /// The new owner must NOT already have a username registered.
         #[pallet::call_index(2)]
-        #[pallet::weight(Weight::from_parts(40_000_000, 0).saturating_add(T::DbWeight::get().reads_writes(3, 4)))]
+        #[pallet::weight((
+            Weight::from_parts(40_000_000, 0).saturating_add(T::DbWeight::get().reads_writes(3, 4)),
+            Pays::No
+        ))]
         pub fn transfer(
             origin: OriginFor<T>,
             name: BoundedVec<u8, T::MaxNameLength>,
             new_owner: T::AccountId,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             let who = ensure_signed(origin)?;
 
             let owner = Names::<T>::get(&name).ok_or(Error::<T>::NameNotFound)?;
             ensure!(owner == who, Error::<T>::NotOwner);
 
-            // New owner must not already have a username
             ensure!(
                 !ReverseLookup::<T>::contains_key(&new_owner),
                 Error::<T>::AlreadyRegistered
             );
 
-            // Update ownership
             Names::<T>::insert(&name, &new_owner);
             ReverseLookup::<T>::remove(&who);
             ReverseLookup::<T>::insert(&new_owner, &name);
@@ -261,7 +282,48 @@ pub mod pallet {
                 new_owner,
             });
 
-            Ok(())
+            Ok(Pays::No.into())
+        }
+    }
+
+    #[pallet::validate_unsigned]
+    impl<T: Config> ValidateUnsigned for Pallet<T> {
+        type Call = Call<T>;
+
+        fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+            if let Call::register_unsigned { name, owner, signature } = call {
+                let mut payload = name.to_vec();
+                payload.extend_from_slice(b"register");
+                
+                let mut msg_hash = [0u8; 32];
+                msg_hash.copy_from_slice(sp_io::hashing::keccak_256(&payload).as_slice());
+                
+                let recovered_pubkey = sp_io::crypto::secp256k1_ecdsa_recover(signature, &msg_hash)
+                    .map_err(|_| InvalidTransaction::BadProof)?;
+                    
+                let mut recovered_addr = [0u8; 20];
+                recovered_addr.copy_from_slice(&sp_io::hashing::keccak_256(&recovered_pubkey)[12..]);
+                
+                if owner.encode() != recovered_addr.encode() {
+                    return InvalidTransaction::BadProof.into();
+                }
+
+                if Names::<T>::contains_key(name) {
+                    return InvalidTransaction::Stale.into();
+                }
+                if ReverseLookup::<T>::contains_key(owner) {
+                    return InvalidTransaction::Stale.into();
+                }
+
+                ValidTransaction::with_tag_prefix("NameRegistry")
+                    .priority(100)
+                    .and_provides((owner.encode(), name.to_vec()))
+                    .longevity(5)
+                    .propagate(true)
+                    .build()
+            } else {
+                InvalidTransaction::Call.into()
+            }
         }
     }
 

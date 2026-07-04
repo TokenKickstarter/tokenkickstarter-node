@@ -1,7 +1,7 @@
 [package]
-name = "pallet-name-registry"
+name = "pallet-shard-registry"
 version = "0.1.0"
-description = "TKS on-chain username registry — optional global @usernames for Cipher identities"
+description = "TKS HyperSwarm shard registry — maps validators to message shards with VRF-based epoch rotation"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,11 +13,11 @@ codec = { workspace = true }
 scale-info = { workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
-pallet-balances = { workspace = true }
 sp-runtime = { workspace = true }
-log = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
+log = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 sp-runtime = { workspace = true, features = ["std"] }
@@ -29,10 +29,10 @@ std = [
     "scale-info/std",
     "frame-support/std",
     "frame-system/std",
-    "pallet-balances/std",
     "sp-runtime/std",
-    "log/std",
     "sp-core/std",
     "sp-io/std",
+    "log/std",
+    "serde/std",
 ]
 try-runtime = ["frame-support/try-runtime"]

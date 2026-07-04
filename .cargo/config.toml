@@ -1,0 +1,21 @@
+# TKS Substrate Node — Cargo Config
+#
+# IMPORTANT: This file pins RUSTC to the rustup-managed toolchain
+# instead of the system Homebrew Rust installation.
+#
+# WHY: macOS has two Rust 1.94.0 installations that conflict:
+#   1. Homebrew:  /opt/homebrew/Cellar/rust/1.94.0   (no WASM targets)
+#   2. rustup:    ~/.rustup/toolchains/1.94.0-aarch64-apple-darwin
+#
+# The Homebrew rustc has a different build-ID suffix "(Homebrew)" and doesn't
+# ship wasm32v1-none / wasm32-unknown-unknown targets.
+# substrate-wasm-builder requires these targets to embed the WASM runtime.
+#
+# [env] is used instead of [build] rustc so RUSTC is inherited by build
+# scripts AND all their subprocess compilations (the WASM dummy-crate check).
+#
+# To update after `rustup toolchain install`, run:
+#   rustup which rustc --toolchain 1.94.0
+
+[env]
+RUSTC = { value = "/Users/indigo/.rustup/toolchains/1.94.0-aarch64-apple-darwin/bin/rustc", force = true }

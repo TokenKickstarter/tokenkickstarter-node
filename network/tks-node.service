@@ -1,0 +1,35 @@
+[Unit]
+Description=TKS Blockchain Node
+Documentation=https://docs.tks.network
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tks
+Group=tks
+WorkingDirectory=/opt/tks
+ExecStart=/opt/tks/tks-chain-node \
+    --chain /opt/tks/tks-testnet-spec-raw.json \
+    --bootnodes /ip4/YOUR_SERVER_IP/tcp/30333/p2p/12D3KooWNaz3nEXYRCWJUtEFXrpo2DpiuM1XuRuZ9HsKR2GDh9tT \
+    --base-path /var/lib/tks \
+    --port 30333 \
+    --rpc-port 9944 \
+    --rpc-external \
+    --rpc-cors all \
+    --name "${TKS_NODE_NAME}" \
+    --log info
+
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=65535
+LimitNPROC=65535
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/tks
+
+[Install]
+WantedBy=multi-user.target

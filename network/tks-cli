@@ -1,0 +1,833 @@
+#!/usr/bin/env bash
+# ============================================================
+#  tks-cli — TKS Node Command Line Interface  v0.3.0
+#  Like bitcoin-cli + cast + subkey, built for TKS
+#
+#  Usage:  tks-cli <command> [args...]
+#  Config env vars:
+#    TKS_RPC         RPC endpoint  (default: http://127.0.0.1:9944)
+#    TKS_WS          WebSocket URL (default: ws://127.0.0.1:9944)
+#    TKS_PRIVATE_KEY Private key for signing (0x prefixed)
+#    TKS_FROM        Default sender address (0x prefixed)
+# ============================================================
+
+set -e
+
+RPC="${TKS_RPC:-http://127.0.0.1:9944}"
+CMD="${1:-help}"
+ID=1
+
+# ── Colors ───────────────────────────────────────────────────
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+BLUE='\033[0;34m'; MAGENTA='\033[0;35m'
+
+# ── Utility: require tool ─────────────────────────────────────
+require() {
+  command -v "$1" &>/dev/null || {
+    echo -e "${RED}Error: '$1' is required for this command.${RESET}"
+    echo -e "  Install: $2"
+    exit 1
+  }
+}
+
+# ── RPC Helper ───────────────────────────────────────────────
+rpc() {
+  local method="$1"; shift
+  local params="${1:-[]}"
+  local result
+  result=$(curl -sf -X POST "$RPC" \
+    -H "Content-Type: application/json" \
+    -d "{\"jsonrpc\":\"2.0\",\"method\":\"$method\",\"params\":$params,\"id\":$ID}" \
+    2>/dev/null) || {
+    echo -e "${RED}Error: Cannot connect to TKS node at $RPC${RESET}"
+    echo -e "${DIM}Start node: ./start-node.sh  or  ./tks-chain-node --dev${RESET}"
+    exit 1
+  }
+  local err
+  err=$(echo "$result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('error',{}).get('message',''))" 2>/dev/null)
+  if [ -n "$err" ]; then echo -e "${RED}RPC Error: $err${RESET}" >&2; exit 1; fi
+  echo "$result" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+r=d.get('result')
+if isinstance(r,(dict,list)):
+    print(json.dumps(r,indent=2))
+else:
+    print(r)
+"
+}
+
+# ── Helpers ──────────────────────────────────────────────────
+hex2dec() { python3 -c "print(int('$1', 16))"; }
+dec2hex() { python3 -c "print(hex($1))"; }
+format_tks() {
+  python3 -c "
+v=int('$1',16) if '$1'.startswith('0x') else int('$1')
+tks=v/10**18
+print(f'  {tks:,.6f} TKS')
+print(f'  {v:,} wei')
+"
+}
+require_key() {
+  if [ -z "$TKS_PRIVATE_KEY" ]; then
+    echo -e "${RED}Error: TKS_PRIVATE_KEY not set${RESET}"
+    echo -e "  export TKS_PRIVATE_KEY=0xYourPrivateKey"
+    exit 1
+  fi
+}
+require_from() {
+  if [ -z "$TKS_FROM" ] && [ -z "$TKS_PRIVATE_KEY" ]; then
+    echo -e "${RED}Error: Set TKS_FROM or TKS_PRIVATE_KEY${RESET}"
+    echo -e "  export TKS_FROM=0xYourAddress"
+    exit 1
+  fi
+}
+
+# ── Section header printer ────────────────────────────────────
+header() { echo -e "\n${BOLD}${BLUE}=== $1 ===${RESET}"; }
+
+# ════════════════════════════════════════════════════════════
+case "$CMD" in
+
+# ── CHAIN INFO ───────────────────────────────────────────────
+getblockcount|blockcount|block-number|blocknumber)
+  result=$(rpc eth_blockNumber '[]')
+  echo -e "${GREEN}Block #$(hex2dec $result)${RESET}  (hex: $result)"
+  ;;
+
+getbestblockhash|bestblock|finalized)
+  rpc chain_getFinalizedHead '[]'
+  ;;
+
+getblockchaininfo|info|chaininfo)
+  header "TKS Network Info"
+  CHAIN=$(rpc system_chain '[]')
+  VERSION=$(rpc system_version '[]')
+  CHAIN_ID=$(rpc eth_chainId '[]')
+  BLOCK=$(rpc eth_blockNumber '[]')
+  FINALIZED=$(rpc chain_getFinalizedHead '[]')
+  HEALTH=$(rpc system_health '[]')
+  PEERS=$(echo "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin)['peers'])")
+  SYNCING=$(echo "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin)['isSyncing'])")
+  RUNTIME=$(rpc state_getRuntimeVersion '[]')
+  SPEC=$(echo "$RUNTIME" | python3 -c "import json,sys; print(json.load(sys.stdin)['specVersion'])")
+  GAS=$(rpc eth_gasPrice '[]')
+  echo -e "  Chain:          $CHAIN"
+  echo -e "  Chain ID:       $(hex2dec $CHAIN_ID)  (MetaMask: add this ID)"
+  echo -e "  Block:          #$(hex2dec $BLOCK)"
+  echo -e "  Finalized:      $FINALIZED"
+  echo -e "  Spec Version:   $SPEC"
+  echo -e "  Node Version:   $VERSION"
+  echo -e "  Peers:          $PEERS"
+  echo -e "  Syncing:        $SYNCING"
+  echo -e "  Gas Price:      $(hex2dec $GAS) wei  ($(python3 -c "print(int('$GAS',16)/10**9,'gwei')"))"
+  echo -e "  RPC:            $RPC"
+  ;;
+
+getruntimeversion|runtimeversion|specversion)
+  header "Runtime Version"
+  rpc state_getRuntimeVersion '[]'
+  ;;
+
+# ── SYNCING ──────────────────────────────────────────────────
+getsyncing|syncing|sync)
+  result=$(rpc eth_syncing '[]')
+  if [ "$result" = "false" ] || [ "$result" = "False" ]; then
+    echo -e "${GREEN}✅ Fully synced${RESET}"
+  else
+    echo -e "${YELLOW}⏳ Syncing...${RESET}"
+    echo "$result"
+  fi
+  ;;
+
+# ── BLOCKS ───────────────────────────────────────────────────
+getblock|block)
+  if [ -z "$2" ]; then echo "Usage: tks-cli getblock <number|hash>"; exit 1; fi
+  FULL="${3:-true}"
+  if [[ "$2" == 0x* && ${#2} -gt 20 ]]; then
+    rpc eth_getBlockByHash "[\"$2\", $FULL]"
+  else
+    HEX=$(python3 -c "print(hex($2))")
+    rpc eth_getBlockByNumber "[\"$HEX\", $FULL]"
+  fi
+  ;;
+
+getlatestblock|latestblock|latest)
+  rpc eth_getBlockByNumber '["latest", true]'
+  ;;
+
+getblockheader|blockheader)
+  if [ -z "$2" ]; then echo "Usage: tks-cli blockheader <hash>"; exit 1; fi
+  rpc chain_getHeader "[\"$2\"]"
+  ;;
+
+getblockhash|blockhash)
+  if [ -z "$2" ]; then echo "Usage: tks-cli blockhash <number>"; exit 1; fi
+  HEX=$(python3 -c "print(hex($2))")
+  rpc chain_getBlockHash "[\"$HEX\"]"
+  ;;
+
+gettxcount-block|txcount-block)
+  if [ -z "$2" ]; then echo "Usage: tks-cli txcount-block <number|hash>"; exit 1; fi
+  if [[ "$2" == 0x* && ${#2} -gt 20 ]]; then
+    rpc eth_getBlockTransactionCountByHash "[\"$2\"]"
+  else
+    HEX=$(python3 -c "print(hex($2))")
+    rpc eth_getBlockTransactionCountByNumber "[\"$HEX\"]"
+  fi
+  ;;
+
+# ── WATCH (STREAMING) ────────────────────────────────────────
+watchblocks|watch|watch-blocks)
+  require wscat "npm install -g wscat"
+  WS="${TKS_WS:-ws://127.0.0.1:9944}"
+  echo -e "${CYAN}Watching new blocks on $WS (Ctrl+C to stop)...${RESET}"
+  echo '{"jsonrpc":"2.0","method":"chain_subscribeNewHeads","params":[],"id":1}' | \
+    wscat -c "$WS" --no-color 2>/dev/null | \
+    python3 -c "
+import json,sys
+for line in sys.stdin:
+    try:
+        d=json.loads(line.strip())
+        if 'params' in d:
+            b=d['params']['result']
+            num=int(b.get('number','0x0'),16)
+            print(f'  Block #{num}  hash={b.get(\"parentHash\",\"?\")[:18]}...')
+    except: pass
+"
+  ;;
+
+watchaddress|watch-address|watch-addr)
+  if [ -z "$2" ]; then echo "Usage: tks-cli watchaddress <0xAddress>"; exit 1; fi
+  echo -e "${CYAN}Watching address $2 for transactions (polling every 5s)...${RESET}"
+  LAST_BLOCK=0
+  while true; do
+    CURRENT=$(hex2dec $(rpc eth_blockNumber '[]'))
+    if [ "$CURRENT" -gt "$LAST_BLOCK" ]; then
+      HEX=$(python3 -c "print(hex($CURRENT))")
+      BLOCK=$(rpc eth_getBlockByNumber "[\"$HEX\", true]" 2>/dev/null)
+      echo "$BLOCK" | python3 -c "
+import json,sys
+b=json.load(sys.stdin)
+addr='$2'.lower()
+txs=b.get('transactions',[])
+for tx in txs:
+    if isinstance(tx,dict):
+        if tx.get('from','').lower()==addr or tx.get('to','').lower()==addr:
+            val=int(tx.get('value','0x0'),16)/10**18
+            print(f'  ✅ Tx: {tx[\"hash\"][:18]}...  {val:.4f} TKS  {tx.get(\"from\",\"?\")} → {tx.get(\"to\",\"?\")}')
+" 2>/dev/null
+      LAST_BLOCK=$CURRENT
+    fi
+    sleep 5
+  done
+  ;;
+
+# ── TRANSACTIONS ─────────────────────────────────────────────
+gettransaction|gettx|tx)
+  if [ -z "$2" ]; then echo "Usage: tks-cli tx <txhash>"; exit 1; fi
+  header "Transaction $2"
+  rpc eth_getTransactionByHash "[\"$2\"]"
+  ;;
+
+getreceipt|receipt)
+  if [ -z "$2" ]; then echo "Usage: tks-cli receipt <txhash>"; exit 1; fi
+  header "Receipt for $2"
+  RESULT=$(rpc eth_getTransactionReceipt "[\"$2\"]")
+  echo "$RESULT"
+  STATUS=$(echo "$RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status','?'))" 2>/dev/null)
+  if [ "$STATUS" = "0x1" ]; then echo -e "${GREEN}  ✅ Transaction succeeded${RESET}"; fi
+  if [ "$STATUS" = "0x0" ]; then echo -e "${RED}  ❌ Transaction failed/reverted${RESET}"; fi
+  ;;
+
+sendrawtransaction|send|broadcast)
+  if [ -z "$2" ]; then echo "Usage: tks-cli send <0xSignedTx>"; exit 1; fi
+  TXHASH=$(rpc eth_sendRawTransaction "[\"$2\"]")
+  echo -e "${GREEN}✅ Transaction broadcast!${RESET}"
+  echo -e "  TxHash: ${CYAN}$TXHASH${RESET}"
+  echo -e "  Track:  tks-cli receipt $TXHASH"
+  echo -e "  Explorer: https://tksscan.com/tx/$TXHASH"
+  ;;
+
+# ── TRANSFER (requires cast or private key) ───────────────────
+transfer|send-tks)
+  # Usage: tks-cli transfer <to> <amount_in_tks>
+  if [ -z "$2" ] || [ -z "$3" ]; then
+    echo "Usage: tks-cli transfer <0xTo> <amount_TKS>"
+    echo "Requires: TKS_PRIVATE_KEY env var + cast (Foundry)"
+    echo "  export TKS_PRIVATE_KEY=0xYourKey"
+    echo "  tks-cli transfer 0xRecipient 10.5"
+    exit 1
+  fi
+  require_key
+  require cast "curl -L https://foundry.paradigm.xyz | bash && foundryup"
+  TO="$2"
+  AMOUNT_WEI=$(python3 -c "print(hex(int(float('$3') * 10**18)))")
+  echo -e "${YELLOW}Sending $3 TKS to $TO...${RESET}"
+  TXHASH=$(cast send "$TO" \
+    --value "$AMOUNT_WEI" \
+    --private-key "$TKS_PRIVATE_KEY" \
+    --rpc-url "$RPC" \
+    --json 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('transactionHash',''))")
+  echo -e "${GREEN}✅ Sent $3 TKS to $TO${RESET}"
+  echo -e "  TxHash:  ${CYAN}$TXHASH${RESET}"
+  echo -e "  Track:   tks-cli receipt $TXHASH"
+  ;;
+
+# ── BALANCES & ACCOUNTS ──────────────────────────────────────
+getbalance|balance)
+  if [ -z "$2" ]; then
+    require_from
+    ADDR="${TKS_FROM:-$(python3 -c "
+from eth_account import Account
+import os
+pk=os.environ.get('TKS_PRIVATE_KEY','')
+if pk: print(Account.from_key(pk).address)
+" 2>/dev/null)}"
+  else
+    ADDR="$2"
+  fi
+  header "Balance: $ADDR"
+  RAW=$(rpc eth_getBalance "[\"$ADDR\", \"latest\"]")
+  format_tks "$RAW"
+  NONCE=$(rpc eth_getTransactionCount "[\"$ADDR\", \"latest\"]")
+  echo -e "  Nonce:  $(hex2dec $NONCE)"
+  ;;
+
+accountinfo|account)
+  if [ -z "$2" ]; then echo "Usage: tks-cli account <0xAddress>"; exit 1; fi
+  header "Account: $2"
+  BAL=$(rpc eth_getBalance "[\"$2\", \"latest\"]")
+  NONCE=$(rpc eth_getTransactionCount "[\"$2\", \"latest\"]")
+  CODE=$(rpc eth_getCode "[\"$2\", \"latest\"]")
+  IS_CONTRACT="false"
+  if [ "$CODE" != "0x" ] && [ -n "$CODE" ]; then IS_CONTRACT="true"; fi
+  format_tks "$BAL"
+  echo -e "  Nonce:      $(hex2dec $NONCE)"
+  echo -e "  Contract:   $IS_CONTRACT"
+  if [ "$IS_CONTRACT" = "true" ]; then
+    echo -e "  Code size:  $(python3 -c "print(len('$CODE')//2-1, 'bytes')")"
+  fi
+  ;;
+
+gettransactioncount|nonce)
+  if [ -z "$2" ]; then echo "Usage: tks-cli nonce <0xAddress>"; exit 1; fi
+  RESULT=$(rpc eth_getTransactionCount "[\"$2\", \"latest\"]")
+  echo "Nonce: $(hex2dec $RESULT)"
+  ;;
+
+getcode|code)
+  if [ -z "$2" ]; then echo "Usage: tks-cli code <0xContract>"; exit 1; fi
+  rpc eth_getCode "[\"$2\", \"latest\"]"
+  ;;
+
+getstorage|storage)
+  if [ -z "$2" ] || [ -z "$3" ]; then echo "Usage: tks-cli storage <0xContract> <slot>"; exit 1; fi
+  SLOT=$(python3 -c "print(hex(int('$3')) if not '$3'.startswith('0x') else '$3')")
+  rpc eth_getStorageAt "[\"$2\", \"$SLOT\", \"latest\"]"
+  ;;
+
+# ── GAS ──────────────────────────────────────────────────────
+gasprice|gas-price|gas)
+  header "Gas Price"
+  RAW=$(rpc eth_gasPrice '[]')
+  WEI=$(hex2dec $RAW)
+  GWEI=$(python3 -c "print(f'{$WEI/10**9:.4f}')")
+  echo -e "  ${WEI} wei"
+  echo -e "  ${GWEI} gwei"
+  ;;
+
+feehistory|fee-history)
+  header "EIP-1559 Fee History (last 10 blocks)"
+  rpc eth_feeHistory '[10, "latest", [25, 50, 75]]'
+  ;;
+
+estimategas|estimate-gas|estimate)
+  if [ -z "$2" ]; then
+    echo "Usage: tks-cli estimategas '{\"from\":\"0x...\",\"to\":\"0x...\",\"value\":\"0x...\"}'"
+    exit 1
+  fi
+  RESULT=$(rpc eth_estimateGas "[$2, \"latest\"]")
+  echo "Estimated gas: $(hex2dec $RESULT)"
+  ;;
+
+# ── MEMPOOL ──────────────────────────────────────────────────
+getmempoolinfo|mempool|pool)
+  header "Transaction Pool"
+  rpc txpool_status '[]'
+  ;;
+
+getrawmempool|mempool-full|pool-full)
+  rpc txpool_content '[]'
+  ;;
+
+mempool-inspect|pool-inspect)
+  rpc txpool_inspect '[]'
+  ;;
+
+# ── NETWORK & PEERS ──────────────────────────────────────────
+getpeerinfo|peers)
+  header "Connected Peers"
+  rpc system_peers '[]'
+  ;;
+
+getpeercount|peercount|peer-count)
+  RESULT=$(rpc net_peerCount '[]')
+  echo -e "${GREEN}Peers: $(hex2dec $RESULT)${RESET}"
+  ;;
+
+getpeerid|peerid|peer-id)
+  echo -e "Peer ID: ${CYAN}$(rpc system_localPeerId '[]')${RESET}"
+  ;;
+
+getlistenaddresses|listenaddresses|listen-addr)
+  header "Listen Addresses"
+  rpc system_localListenAddresses '[]'
+  ;;
+
+getnetworkinfo|networkinfo|network)
+  rpc system_networkState '[]'
+  ;;
+
+addpeer|add-peer)
+  if [ -z "$2" ]; then echo "Usage: tks-cli addpeer /ip4/1.2.3.4/tcp/30333/p2p/12D3..."; exit 1; fi
+  rpc system_addReservedPeer "[\"$2\"]"
+  echo -e "${GREEN}✅ Peer added: $2${RESET}"
+  ;;
+
+removepeer|remove-peer)
+  if [ -z "$2" ]; then echo "Usage: tks-cli removepeer <PeerID>"; exit 1; fi
+  rpc system_removeReservedPeer "[\"$2\"]"
+  echo -e "${YELLOW}Peer removed: $2${RESET}"
+  ;;
+
+# ── STAKING ──────────────────────────────────────────────────
+getstakinginfo|staking|stake-info)
+  header "Staking Info"
+  echo -e "  Min Validator Bond: ${GREEN}100,000 TKS${RESET}"
+  echo -e "  Min Nominator Bond: ${GREEN}1,000 TKS${RESET}"
+  echo -e "  Block Reward:       ${GREEN}15 TKS/block${RESET}"
+  echo -e "  Staker Share:       ${GREEN}80%${RESET}"
+  echo -e "  Treasury Share:     ${GREEN}20%${RESET}"
+  echo -e "  Unbonding Period:   ${YELLOW}28 days${RESET}"
+  echo -e "  Slash Defer:        ${YELLOW}27 days${RESET}"
+  echo ""
+  echo -e "  ${DIM}Full staking UI: https://polkadot.js.org/apps/?rpc=ws://127.0.0.1:9944${RESET}"
+  echo -e "  ${DIM}→ Network → Staking → Account Actions${RESET}"
+  ;;
+
+rotatekeys|rotate-keys)
+  header "Rotating Session Keys"
+  echo -e "${YELLOW}⚠  Requires: --rpc-methods unsafe on your node${RESET}"
+  KEYS=$(rpc author_rotateKeys '[]')
+  echo -e "${GREEN}✅ New session keys generated:${RESET}"
+  echo -e "  ${CYAN}$KEYS${RESET}"
+  echo ""
+  echo -e "${BOLD}Next steps to become validator:${RESET}"
+  echo -e "  1. Go to: https://polkadot.js.org/apps/?rpc=ws://127.0.0.1:9944"
+  echo -e "  2. Developer → Extrinsics → session → setKeys(keys=$KEYS, proof=0x)"
+  echo -e "  3. Network → Staking → Bond (min 100,000 TKS)"
+  echo -e "  4. Network → Staking → Validate"
+  ;;
+
+insertkey|insert-key)
+  # tks-cli insertkey <key-type> <seed> <public-key>
+  if [ -z "$4" ]; then echo "Usage: tks-cli insertkey <aura|gran> <seed> <pubkey>"; exit 1; fi
+  rpc author_insertKey "[\"$2\", \"$3\", \"$4\"]"
+  echo -e "${GREEN}✅ Key inserted${RESET}"
+  ;;
+
+haskey|has-key)
+  if [ -z "$3" ]; then echo "Usage: tks-cli haskey <pubkey> <key-type>"; exit 1; fi
+  rpc author_hasKey "[\"$2\", \"$3\"]"
+  ;;
+
+pendingextrinsics|pending-ext|pending-txs)
+  header "Pending Extrinsics (Substrate mempool)"
+  rpc author_pendingExtrinsics '[]'
+  ;;
+
+# ── KEY GENERATION ───────────────────────────────────────────
+keygen|generate-key|newaccount|new-account)
+  require python3 "python3 is required"
+  header "Generate New TKS Account"
+  python3 -c "
+import os, hashlib
+try:
+    from eth_account import Account
+    acc = Account.create()
+    print(f'  Address:     {acc.address}')
+    print(f'  Private Key: {acc.key.hex()}')
+    print(f'  Mnemonic:    (use eth_account mnemonic API)')
+    print()
+    print('  SAVE THESE SECURELY. Never share your private key.')
+except ImportError:
+    print('  Install eth_account: pip3 install eth-account')
+    print('  Or use: ./tks-chain-node key generate')
+"
+  ;;
+
+keyinspect|inspect-key)
+  if [ -z "$2" ]; then echo "Usage: tks-cli keyinspect <mnemonic or 0xprivkey>"; exit 1; fi
+  python3 -c "
+try:
+    from eth_account import Account
+    acc = Account.from_key('$2') if '$2'.startswith('0x') else Account.from_mnemonic('$2')
+    print(f'  Address: {acc.address}')
+    print(f'  Key:     {acc.key.hex()}')
+except ImportError:
+    print('Install: pip3 install eth-account')
+except Exception as e:
+    print(f'Error: {e}')
+" 2>/dev/null || echo "Install: pip3 install eth-account"
+  ;;
+
+sign|sign-message)
+  if [ -z "$2" ]; then echo "Usage: tks-cli sign <message>"; exit 1; fi
+  require_key
+  python3 -c "
+from eth_account import Account
+from eth_account.messages import encode_defunct
+acc = Account.from_key('$TKS_PRIVATE_KEY')
+msg = encode_defunct(text='$2')
+sig = acc.sign_message(msg)
+print(f'  Address:   {acc.address}')
+print(f'  Message:   $2')
+print(f'  Signature: {sig.signature.hex()}')
+" 2>/dev/null || echo "Install: pip3 install eth-account"
+  ;;
+
+verifysig|verify-sig|verify)
+  if [ -z "$4" ]; then echo "Usage: tks-cli verify <address> <message> <signature>"; exit 1; fi
+  python3 -c "
+from eth_account import Account
+from eth_account.messages import encode_defunct
+msg = encode_defunct(text='$3')
+recovered = Account.recover_message(msg, signature='$4')
+expected = '$2'.lower()
+match = recovered.lower() == expected
+print(f'  Recovered: {recovered}')
+print(f'  Expected:  $2')
+print(f'  Valid:     {\"✅ YES\" if match else \"❌ NO\"}')
+" 2>/dev/null || echo "Install: pip3 install eth-account"
+  ;;
+
+# ── CONTRACTS ────────────────────────────────────────────────
+call|eth-call)
+  if [ -z "$2" ] || [ -z "$3" ]; then
+    echo "Usage: tks-cli call <0xContract> <0xCalldata>"
+    exit 1
+  fi
+  rpc eth_call "[{\"to\":\"$2\",\"data\":\"$3\"}, \"latest\"]"
+  ;;
+
+deploy|deploy-contract)
+  if [ -z "$2" ]; then
+    echo "Usage: tks-cli deploy <0xBytecode> [value_wei]"
+    echo "Requires: TKS_PRIVATE_KEY + cast (Foundry)"
+    exit 1
+  fi
+  require_key
+  require cast "curl -L https://foundry.paradigm.xyz | bash && foundryup"
+  VALUE="${3:-0}"
+  echo -e "${YELLOW}Deploying contract...${RESET}"
+  cast send \
+    --private-key "$TKS_PRIVATE_KEY" \
+    --rpc-url "$RPC" \
+    --create "$2"
+  ;;
+
+cast|cast-call)
+  # Passthrough to Foundry cast with TKS RPC
+  require cast "curl -L https://foundry.paradigm.xyz | bash && foundryup"
+  shift
+  cast "$@" --rpc-url "$RPC"
+  ;;
+
+# ── ERC-20 HELPERS ───────────────────────────────────────────
+erc20-balance|token-balance)
+  if [ -z "$2" ] || [ -z "$3" ]; then
+    echo "Usage: tks-cli erc20-balance <0xToken> <0xHolder>"
+    exit 1
+  fi
+  # balanceOf(address) = 0x70a08231
+  PADDED=$(python3 -c "print('0x70a08231' + '000000000000000000000000' + '$3'[2:].lower())")
+  RAW=$(rpc eth_call "[{\"to\":\"$2\",\"data\":\"$PADDED\"}, \"latest\"]")
+  python3 -c "
+raw='$RAW'
+if raw and raw != '0x':
+    v=int(raw,16)
+    print(f'  Raw balance: {v}')
+    print(f'  (divide by 10^decimals for human amount)')
+else:
+    print('  Balance: 0 or not a valid ERC-20')
+"
+  ;;
+
+erc20-transfer|token-send)
+  if [ -z "$4" ]; then
+    echo "Usage: tks-cli erc20-transfer <0xToken> <0xTo> <amount_wei>"
+    echo "Requires: TKS_PRIVATE_KEY + cast"
+    exit 1
+  fi
+  require_key
+  require cast "curl -L https://foundry.paradigm.xyz | bash && foundryup"
+  cast send "$2" "transfer(address,uint256)" "$3" "$4" \
+    --private-key "$TKS_PRIVATE_KEY" \
+    --rpc-url "$RPC"
+  ;;
+
+# ── LOGS & EVENTS ────────────────────────────────────────────
+getlogs|logs|events)
+  FROM="${3:-0x0}"
+  TO="${4:-latest}"
+  if [ -z "$2" ]; then
+    rpc eth_getLogs "[{\"fromBlock\":\"0x0\",\"toBlock\":\"latest\"}]"
+  else
+    rpc eth_getLogs "[{\"fromBlock\":\"$FROM\",\"toBlock\":\"$TO\",\"address\":\"$2\"}]"
+  fi
+  ;;
+
+# ── TKS CUSTOM PALLETS ───────────────────────────────────────
+nameregistry|name-registry|names)
+  header "Name Registry Pallet"
+  echo "  Manage on-chain .tks names via Polkadot.js:"
+  echo "  https://polkadot.js.org/apps/?rpc=ws://127.0.0.1:9944"
+  echo "  → Developer → Extrinsics → nameRegistry → register"
+  echo ""
+  echo "  Or use tks-cli rpc to query storage:"
+  echo "  tks-cli rpc state_getStorage '[\"<storage_key>\"]'"
+  ;;
+
+hyperswarm|anchor|hyperswarm-anchor)
+  header "HyperSwarm Anchor Pallet"
+  echo "  Anchor P2P data hashes on-chain:"
+  echo "  → Developer → Extrinsics → hyperswarmAnchor → anchor(topicHash, data)"
+  echo ""
+  echo "  Query anchored data:"
+  echo "  tks-cli rpc state_call '[\"HyperswarmAnchorApi_get_anchor\", \"<encoded>\"]'"
+  ;;
+
+shardregistry|shards|shard-registry)
+  header "Shard Registry Pallet"
+  echo "  HyperSwarm genesis: 8 shards, 7 validators/shard"
+  echo "  → Developer → Extrinsics → shardRegistry → registerShard"
+  ;;
+
+# ── NODE MANAGEMENT ──────────────────────────────────────────
+nodehealth|health)
+  header "Node Health"
+  rpc system_health '[]'
+  ;;
+
+noderoles|roles)
+  rpc system_nodeRoles '[]'
+  ;;
+
+syncstate|sync-state)
+  header "Sync Progress"
+  rpc system_syncState '[]'
+  ;;
+
+setlogfilter|log-filter)
+  if [ -z "$2" ]; then echo "Usage: tks-cli setlogfilter 'sync=debug,grandpa=warn'"; exit 1; fi
+  rpc system_addLogFilter "[\"$2\"]"
+  ;;
+
+resetlogfilter|log-reset)
+  rpc system_resetLogFilter '[]'
+  echo -e "${GREEN}Log filter reset${RESET}"
+  ;;
+
+# ── SUBSTRATE STATE ──────────────────────────────────────────
+getstorage-raw|raw-storage)
+  if [ -z "$2" ]; then echo "Usage: tks-cli raw-storage <0xStorageKey>"; exit 1; fi
+  rpc state_getStorage "[\"$2\"]"
+  ;;
+
+getmetadata|metadata)
+  echo -e "${YELLOW}Warning: full metadata is very large.${RESET}"
+  rpc state_getMetadata '[]' | head -c 1000
+  echo -e "\n${DIM}(truncated — pipe to file: tks-cli metadata > metadata.json)${RESET}"
+  ;;
+
+# ── RAW RPC ──────────────────────────────────────────────────
+rpc|raw)
+  if [ -z "$2" ]; then
+    echo "Usage: tks-cli rpc <method> [params_json]"
+    echo "Examples:"
+    echo "  tks-cli rpc eth_blockNumber '[]'"
+    echo "  tks-cli rpc eth_getBalance '[\"0xAddr\",\"latest\"]'"
+    echo "  tks-cli rpc system_health '[]'"
+    exit 1
+  fi
+  rpc "$2" "${3:-[]}"
+  ;;
+
+# ── STATUS DASHBOARD ─────────────────────────────────────────
+status|dashboard)
+  header "TKS Node Dashboard"
+  BLOCK=$(rpc eth_blockNumber '[]' 2>/dev/null || echo "0x0")
+  HEALTH=$(rpc system_health '[]' 2>/dev/null || echo '{"peers":0,"isSyncing":false}')
+  PEERS=$(echo "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('peers',0))" 2>/dev/null || echo 0)
+  GAS=$(rpc eth_gasPrice '[]' 2>/dev/null || echo "0x0")
+  POOL=$(rpc txpool_status '[]' 2>/dev/null || echo '{}')
+  PENDING=$(echo "$POOL" | python3 -c "import json,sys; d=json.load(sys.stdin); print(int(d.get('pending','0x0'),16))" 2>/dev/null || echo 0)
+  echo -e "  Block:    ${GREEN}#$(hex2dec $BLOCK)${RESET}"
+  echo -e "  Peers:    ${PEERS}"
+  echo -e "  Gas:      $(python3 -c "print(int('$GAS',16)/10**9, 'gwei')")"
+  echo -e "  Pending:  ${PENDING} txs"
+  echo -e "  RPC:      ${CYAN}$RPC${RESET}"
+  ;;
+
+# ── HELP ─────────────────────────────────────────────────────
+help|--help|-h)
+  echo ""
+  echo -e "  ${BOLD}████████╗██╗  ██╗███████╗${RESET}  ${BOLD}tks-cli v0.3.0${RESET} — TKS Node RPC Client"
+  echo -e "  ${BOLD}╚══██╔══╝██║ ██╔╝██╔════╝${RESET}  Like bitcoin-cli + cast for TKS"
+  echo -e "  ${BOLD}   ██║   █████╔╝ ███████╗${RESET}  Node: ${CYAN}$RPC${RESET}"
+  echo -e "  ${BOLD}   ██║   ██╔═██╗ ╚════██║${RESET}  Set:  ${YELLOW}export TKS_RPC=http://host:9944${RESET}"
+  echo -e "  ${BOLD}   ██║   ██║  ██╗███████║${RESET}"
+  echo -e "  ${BOLD}   ╚═╝   ╚═╝  ╚═╝╚══════╝${RESET}"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── CHAIN INFO ───────────────────────────────────────${RESET}"
+  echo "    status               Node dashboard (block, peers, gas, pool)"
+  echo "    getblockchaininfo    Chain name, ID, block, version, health"
+  echo "    getblockcount        Current block height"
+  echo "    getsyncing           Whether node is syncing"
+  echo "    getruntimeversion    spec_version, transaction_version, APIs"
+  echo "    nodehealth           Peers, sync status"
+  echo "    syncstate            Block sync progress detail"
+  echo "    noderoles            FULL / AUTHORITY / LIGHT"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── BLOCKS ───────────────────────────────────────────${RESET}"
+  echo "    getblock <num|hash>  Full block (transactions included)"
+  echo "    getlatestblock       Latest block"
+  echo "    getblockheader <h>   Block header only"
+  echo "    getblockhash <num>   Block hash by number"
+  echo "    txcount-block <b>    Transaction count in a block"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── WATCH (LIVE STREAMING) ───────────────────────────${RESET}"
+  echo "    watchblocks          Stream new block headers in real-time"
+  echo "    watchaddress <0x>    Watch an address for incoming txs (polls)"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── TRANSACTIONS ─────────────────────────────────────${RESET}"
+  echo "    tx <hash>            Transaction details"
+  echo "    receipt <hash>       Receipt: status ✅/❌, gas used, logs"
+  echo "    send <0xSignedTx>    Broadcast a pre-signed raw transaction"
+  echo "    transfer <to> <amt>  Send TKS (needs TKS_PRIVATE_KEY + cast)"
+  echo "    mempool              Pending tx count"
+  echo "    mempool-full         Full mempool content"
+  echo "    mempool-inspect      Mempool summary"
+  echo "    pending-txs          Pending substrate extrinsics"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── BALANCES & ACCOUNTS ──────────────────────────────${RESET}"
+  echo "    getbalance <0x>      TKS balance in TKS + wei"
+  echo "    account <0x>         Full account: balance, nonce, is-contract"
+  echo "    nonce <0x>           Transaction nonce"
+  echo "    code <0xContract>    Contract bytecode"
+  echo "    storage <0x> <slot>  Storage slot value"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── GAS & FEES ───────────────────────────────────────${RESET}"
+  echo "    gasprice             Current gas price (wei + gwei)"
+  echo "    feehistory           EIP-1559 fee history (last 10 blocks)"
+  echo "    estimategas '{...}'  Estimate gas for a transaction"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── KEYS & SIGNING ───────────────────────────────────${RESET}"
+  echo "    keygen               Generate a new TKS/ETH keypair"
+  echo "    keyinspect <seed>    Get address from mnemonic or private key"
+  echo "    sign <message>       Sign a message (needs TKS_PRIVATE_KEY)"
+  echo "    verify <addr> <msg> <sig>  Verify a signed message"
+  echo "    rotatekeys           Generate new validator session keys"
+  echo "    insertkey <t> <s> <pk>  Insert key into node keystore"
+  echo "    haskey <pk> <type>   Check if key exists in keystore"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── STAKING / MINING ─────────────────────────────────${RESET}"
+  echo "    getstakinginfo       Staking parameters (min bond, rewards)"
+  echo "    rotatekeys           Step 1: Generate session keys"
+  echo "    (Use Polkadot.js for bond/validate/nominate/payout)"
+  echo "    https://polkadot.js.org/apps/?rpc=ws://127.0.0.1:9944"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── CONTRACTS & ERC-20 ───────────────────────────────${RESET}"
+  echo "    call <0x> <data>     eth_call (read-only, no gas)"
+  echo "    deploy <bytecode>    Deploy a contract (needs cast)"
+  echo "    erc20-balance <token> <holder>  ERC-20 token balance"
+  echo "    erc20-transfer <token> <to> <amt>  ERC-20 send (needs cast)"
+  echo "    cast <args...>       Passthrough to Foundry cast"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── EVENTS & LOGS ────────────────────────────────────${RESET}"
+  echo "    logs [0xContract]    Event logs (all or by contract)"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── NETWORK & PEERS ──────────────────────────────────${RESET}"
+  echo "    peers                Connected peer list"
+  echo "    peercount            Number of connected peers"
+  echo "    peerid               This node's libp2p Peer ID"
+  echo "    listenaddresses      Node listen addresses"
+  echo "    addpeer <addr>       Add a reserved peer"
+  echo "    removepeer <id>      Remove a reserved peer"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── TKS CUSTOM PALLETS ───────────────────────────────${RESET}"
+  echo "    nameregistry         Name Registry pallet info (.tks names)"
+  echo "    hyperswarm           HyperSwarm Anchor pallet info"
+  echo "    shardregistry        Shard Registry pallet info"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── NODE MANAGEMENT ──────────────────────────────────${RESET}"
+  echo "    setlogfilter <f>     Set log filter (e.g. 'sync=debug')"
+  echo "    resetlogfilter       Reset log filter to default"
+  echo "    metadata             Raw runtime metadata (large)"
+  echo "    raw-storage <key>    Raw storage value by hex key"
+  echo ""
+
+  echo -e "  ${BOLD}${BLUE}── RAW RPC ──────────────────────────────────────────${RESET}"
+  echo "    rpc <method> [p]     Call any RPC method directly"
+  echo "    rpc eth_chainId '[]'"
+  echo "    rpc system_health '[]'"
+  echo "    rpc author_rotateKeys '[]'"
+  echo ""
+
+  echo -e "  ${BOLD}ENVIRONMENT VARIABLES${RESET}"
+  echo "    TKS_RPC          Node HTTP RPC URL  [default: http://127.0.0.1:9944]"
+  echo "    TKS_WS           Node WebSocket URL [default: ws://127.0.0.1:9944]"
+  echo "    TKS_PRIVATE_KEY  Private key for signing (0x prefixed)"
+  echo "    TKS_FROM         Default sender address  (0x prefixed)"
+  echo ""
+
+  echo -e "  ${BOLD}EXAMPLES${RESET}"
+  echo "    tks-cli status"
+  echo "    tks-cli getbalance 0xe04cc55ebee1cbce552f250e85c57b70b2e2625b"
+  echo "    tks-cli getblock 42"
+  echo "    tks-cli receipt 0xabc123..."
+  echo "    tks-cli watchblocks"
+  echo "    tks-cli keygen"
+  echo "    tks-cli sign 'Hello TKS'"
+  echo "    tks-cli erc20-balance 0xTokenContract 0xHolder"
+  echo "    tks-cli rpc eth_chainId '[]'"
+  echo "    TKS_RPC=http://seed.tokenkickstarter.com:9944 tks-cli status"
+  echo ""
+
+  echo -e "  ${DIM}Docs: network/RPC-CLI-REFERENCE.md${RESET}"
+  echo -e "  ${DIM}GUI:  https://polkadot.js.org/apps/?rpc=ws://127.0.0.1:9944${RESET}"
+  echo -e "  ${DIM}Explorer: https://tksscan.com${RESET}"
+  echo ""
+  ;;
+
+*)
+  echo -e "${RED}Unknown command: $CMD${RESET}"
+  echo "Run: tks-cli help"
+  exit 1
+  ;;
+esac

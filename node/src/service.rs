@@ -1,11 +1,13 @@
 //! # TKS Node Service
 //!
-//! Constructs and starts the full TKS blockchain node.
+//! Constructs and starts the full TKS blockchain node with Frontier EVM backend.
 
 use std::sync::Arc;
+use std::time::Duration;
+use std::collections::BTreeMap;
 
-use futures::FutureExt;
-use sc_client_api::{Backend, BlockBackend};
+use futures::{FutureExt, StreamExt};
+use sc_client_api::{Backend, BlockBackend, BlockchainEvents};
 use sc_consensus_aura::{ImportQueueParams, SlotProportion, StartAuraParams};
 use sc_consensus_grandpa::SharedVoterState;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager, WarpSyncConfig};
@@ -14,17 +16,27 @@ use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
 use sp_runtime::traits::Block as BlockT;
 
+// Frontier imports
+use fc_mapping_sync::{kv::MappingSyncWorker, SyncStrategy};
+use fc_rpc_core::types::{FeeHistoryCache, FilterPool};
+
 /// Alias for the network backend type.
 type NetworkBackend = sc_network::NetworkWorker<
     tks_runtime::Block,
     <tks_runtime::Block as BlockT>::Hash,
 >;
 
+pub type HostFunctions = (
+    sp_io::SubstrateHostFunctions,
+    cumulus_primitives_proof_size_hostfunction::storage_proof_size::HostFunctions,
+);
+
 pub(crate) type FullClient = sc_service::TFullClient<
     tks_runtime::Block,
     tks_runtime::RuntimeApi,
-    sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
+    sc_executor::WasmExecutor<HostFunctions>,
 >;
+
 type FullBackend = sc_service::TFullBackend<tks_runtime::Block>;
 type FullSelectChain = sc_consensus::LongestChain<FullBackend, tks_runtime::Block>;
 type FullGrandpaBlockImport = sc_consensus_grandpa::GrandpaBlockImport<
@@ -34,6 +46,44 @@ type FullGrandpaBlockImport = sc_consensus_grandpa::GrandpaBlockImport<
     FullSelectChain,
 >;
 type TransactionPool = sc_transaction_pool::TransactionPoolHandle<tks_runtime::Block, FullClient>;
+
+/// Frontier KV backend type (2 generic args for this version).
+pub type FrontierBackend = fc_db::kv::Backend<tks_runtime::Block, FullClient>;
+
+/// Get the Frontier database directory.
+pub fn frontier_database_dir(config: &Configuration) -> std::path::PathBuf {
+    config.base_path.config_dir(config.chain_spec.id()).join("frontier").join("db")
+}
+
+/// Open the Frontier KV backend.
+pub fn open_frontier_backend(
+    client: Arc<FullClient>,
+    config: &Configuration,
+) -> Result<Arc<FrontierBackend>, String> {
+    let db_config_dir = config.base_path.config_dir(config.chain_spec.id());
+    let database = match &config.database {
+        sc_service::DatabaseSource::RocksDb { .. } => fc_db::kv::DatabaseSource::RocksDb {
+            path: "".into(),
+            cache_size: 0,
+        },
+        sc_service::DatabaseSource::ParityDb { .. } => fc_db::kv::DatabaseSource::ParityDb {
+            path: "".into(),
+        },
+        _ => fc_db::kv::DatabaseSource::Auto {
+            rocksdb_path: "".into(),
+            paritydb_path: "".into(),
+            cache_size: 0,
+        },
+    };
+
+    Ok(Arc::new(fc_db::kv::Backend::open(
+        client,
+        &database,
+        &db_config_dir,
+    )?))
+}
+
+
 
 /// Build the partial components required for the node.
 pub fn new_partial(
@@ -49,6 +99,7 @@ pub fn new_partial(
             FullGrandpaBlockImport,
             sc_consensus_grandpa::LinkHalf<tks_runtime::Block, FullClient, FullSelectChain>,
             Option<Telemetry>,
+            Arc<FrontierBackend>,
         ),
     >,
     ServiceError,
@@ -64,7 +115,7 @@ pub fn new_partial(
         })
         .transpose()?;
 
-    let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
+    let executor = sc_service::new_wasm_executor::<HostFunctions>(&config.executor);
 
     let (client, backend, keystore_container, task_manager) =
         sc_service::new_full_parts::<tks_runtime::Block, tks_runtime::RuntimeApi, _>(
@@ -123,6 +174,9 @@ pub fn new_partial(
             compatibility_mode: Default::default(),
         })?;
 
+    // Open Frontier KV backend
+    let frontier_backend = open_frontier_backend(client.clone(), config)?;
+
     Ok(sc_service::PartialComponents {
         client,
         backend,
@@ -131,12 +185,16 @@ pub fn new_partial(
         keystore_container,
         select_chain,
         transaction_pool: Arc::new(transaction_pool),
-        other: (grandpa_block_import, grandpa_link, telemetry),
+        other: (grandpa_block_import, grandpa_link, telemetry, frontier_backend),
     })
 }
 
 /// Build and start the full TKS node.
-pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
+pub fn new_full(
+    config: Configuration,
+    enable_cipher_relay: bool,
+    cipher_relay_port: u16,
+) -> Result<TaskManager, ServiceError> {
     let sc_service::PartialComponents {
         client,
         backend,
@@ -145,7 +203,7 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
         keystore_container,
         select_chain,
         transaction_pool,
-        other: (block_import, grandpa_link, mut telemetry),
+        other: (block_import, grandpa_link, mut telemetry, frontier_backend),
     } = new_partial(&config)?;
 
     let genesis_hash = client
@@ -229,17 +287,112 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
     let enable_grandpa = !config.disable_grandpa;
     let prometheus_registry = config.prometheus_registry().cloned();
 
+    // Frontier: Ethereum block notification sinks for pubsub
+    let pubsub_notification_sinks: fc_mapping_sync::EthereumBlockNotificationSinks<
+        fc_mapping_sync::EthereumBlockNotification<tks_runtime::Block>,
+    > = Default::default();
+    let pubsub_notification_sinks = Arc::new(pubsub_notification_sinks);
+
+    // Frontier: Filter pool for eth_newFilter / eth_getFilterChanges
+    let filter_pool: Option<FilterPool> = Some(Arc::new(std::sync::Mutex::new(
+        BTreeMap::new(),
+    )));
+
+    // Frontier: Fee history cache
+    let fee_history_cache: FeeHistoryCache = Arc::new(std::sync::Mutex::new(BTreeMap::new()));
+
+    // Frontier: storage override for mapping sync and RPC
+    let storage_override: Arc<dyn fc_storage::StorageOverride<tks_runtime::Block>> =
+        Arc::new(fc_rpc::StorageOverrideHandler::new(client.clone()));
+
+    // Frontier: Spawn mapping sync worker
+    {
+        let client_for_sync = client.clone();
+        let backend_for_sync = backend.clone();
+        let storage_override_for_sync = storage_override.clone();
+        let frontier_backend_for_sync = frontier_backend.clone();
+        let sync_service_for_sync = sync_service.clone();
+        let pubsub_for_sync = pubsub_notification_sinks.clone();
+
+        task_manager.spawn_essential_handle().spawn(
+            "frontier-mapping-sync-worker",
+            Some("frontier"),
+            MappingSyncWorker::new(
+                client_for_sync.import_notification_stream(),
+                Duration::new(6, 0),
+                client_for_sync.clone(),
+                backend_for_sync,
+                storage_override_for_sync,
+                frontier_backend_for_sync,
+                100,    // sync batch size: index up to 100 blocks per tick for fast backfill
+                0u32.into(),
+                SyncStrategy::Normal,
+                sync_service_for_sync,
+                pubsub_for_sync,
+            )
+            .for_each(|()| futures::future::ready(())),
+        );
+    }
+
     // RPC
     let rpc_extensions_builder = {
         let client = client.clone();
         let pool = transaction_pool.clone();
+        let is_authority = role.is_authority();
+        let enable_dev_signer = true; // dev mode
+        let network = network.clone();
+        let sync = sync_service.clone();
+        let frontier_backend = frontier_backend.clone();
+        let filter_pool = filter_pool.clone();
+        let fee_history_cache = fee_history_cache.clone();
+        let pubsub_notification_sinks = pubsub_notification_sinks.clone();
+        let storage_override = storage_override.clone();
 
-        Box::new(move |_| {
+        let block_data_cache = Arc::new(fc_rpc::EthBlockDataCacheTask::new(
+            task_manager.spawn_handle(),
+            storage_override.clone(),
+            50,
+            50,
+            prometheus_registry.clone(),
+        ));
+
+        Box::new(move |subscription_task_executor| {
+            let eth = crate::rpc::EthDeps {
+                client: client.clone(),
+                pool: pool.clone(),
+                converter: Some(tks_runtime::TransactionConverter),
+                is_authority,
+                enable_dev_signer,
+                network: network.clone(),
+                sync: sync.clone(),
+                frontier_backend: frontier_backend.clone() as Arc<dyn fc_api::Backend<tks_runtime::Block>>,
+                storage_override: storage_override.clone(),
+                block_data_cache: block_data_cache.clone(),
+                filter_pool: filter_pool.clone(),
+                max_past_logs: 10_000,
+                max_block_range: 10_000,
+                fee_history_cache: fee_history_cache.clone(),
+                fee_history_cache_limit: 2048,
+                execute_gas_limit_multiplier: 10,
+                forced_parent_hashes: None,
+                pending_create_inherent_data_providers: move |_, ()| async move {
+                    let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+                    Ok(timestamp)
+                },
+            };
+
             let deps = crate::rpc::FullDeps {
                 client: client.clone(),
                 pool: pool.clone(),
+                eth,
             };
-            crate::rpc::create_full::<_, _, tks_runtime::Block>(deps).map_err(Into::into)
+
+            crate::rpc::create_full(
+                deps,
+                subscription_task_executor,
+                pubsub_notification_sinks.clone(),
+            )
+            .map_err(Into::into)
         })
     };
 
@@ -339,6 +492,16 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
         task_manager
             .spawn_essential_handle()
             .spawn_blocking("grandpa-voter", None, grandpa);
+    }
+
+    // Start Cipher Relay Messenger task (if enabled)
+    if enable_cipher_relay {
+        task_manager.spawn_essential_handle().spawn("cipher-relay", Some("network"), async move {
+            log::info!("🚀 Starting Embedded Cipher Relay on port {}...", cipher_relay_port);
+            if let Err(e) = cipher_relay::run_relay_server(cipher_relay_port).await {
+                log::error!("Cipher Relay exited with error: {:?}", e);
+            }
+        });
     }
 
     Ok(task_manager)

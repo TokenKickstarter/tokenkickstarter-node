@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  tks-node:
+    build: 
+      context: ..
+      dockerfile: tks-substrate-node/Dockerfile
+    container_name: tks-node-relay
+    restart: unless-stopped
+    ports:
+      - "30333:30333"      # Substrate libp2p port
+      - "9944:9944"        # Substrate WS port
+      - "9933:9933"        # Substrate RPC port
+      - "127.0.0.1:4002:4002"  # Embedded Cipher Relay REST API (mapped locally for NGINX to proxy)
+    volumes:
+      - tks-data:/data
+    command: >
+      --dev
+      --alice
+      --validator
+      --unsafe-rpc-external
+      --rpc-cors=all
+      --enable-cipher-relay
+      --cipher-relay-port=4002
+
+volumes:
+  tks-data:

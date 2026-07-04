@@ -19,6 +19,10 @@ futures = { workspace = true }
 jsonrpsee = { workspace = true }
 serde_json = { workspace = true }
 log = { version = "0.4" }
+hex = { version = "0.4", default-features = false }
+# TKS Local Dependencies
+cipher-relay = { path = "../../cipher-relay" }
+
 
 # Substrate Client
 sc-cli = { workspace = true }
@@ -53,6 +57,33 @@ substrate-frame-rpc-system = { workspace = true }
 pallet-transaction-payment-rpc = { workspace = true }
 frame-system-rpc-runtime-api = { workspace = true, features = ["std"] }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true, features = ["std"] }
+
+# Frontier Client (EVM RPC)
+fc-api = { workspace = true }
+fc-consensus = { workspace = true }
+fc-db = { workspace = true }
+fc-mapping-sync = { workspace = true }
+fc-rpc = { workspace = true }
+fc-rpc-core = { workspace = true }
+fc-storage = { workspace = true }
+
+# Frontier Primitives (needed for node)
+fp-account = { workspace = true, features = ["std"] }
+fp-evm = { workspace = true, features = ["std"] }
+fp-rpc = { workspace = true, features = ["std"] }
+fp-dynamic-fee = { workspace = true, features = ["std"] }
+
+# Ethereum/EVM (for TransactionConverter)
+pallet-ethereum = { workspace = true, features = ["std"] }
+ethereum = { workspace = true, features = ["std"] }
+
+# Additional node deps for Frontier
+sp-inherents = { workspace = true, features = ["std"] }
+sc-network-sync = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+prometheus-endpoint = { package = "substrate-prometheus-endpoint", git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-rpc = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+cumulus-primitives-proof-size-hostfunction = { workspace = true }
+
 
 # Runtime
 tks-runtime = { path = "../runtime" }
