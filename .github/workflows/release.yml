@@ -145,17 +145,23 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: windows-v2-amd64-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: windows-amd64-
+          key: windows-v3-amd64-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: windows-v3-amd64-
 
       - name: Install LLVM/Clang (required by rocksdb)
         run: choco install llvm -y
         shell: powershell
 
+      - name: Install protoc (Windows)
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build
         run: cargo build --release
         env:
           LIBCLANG_PATH: 'C:\Program Files\LLVM\bin'
+          WASM_BUILD_RUSTFLAGS: "-C link-arg=--allow-undefined"
 
       - name: Package binary
         shell: bash
