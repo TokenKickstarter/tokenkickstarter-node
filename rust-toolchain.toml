@@ -1,6 +1,4 @@
 [toolchain]
-channel = "1.94.0"
-# wasm32v1-none is the preferred WASM target for Rust >= 1.84 (substrate-wasm-builder stable2512)
-# wasm32-unknown-unknown kept as fallback for older tooling
+channel = "1.84.0"
 targets = ["wasm32-unknown-unknown", "wasm32v1-none"]
-components = ["rust-src", "rust-lld"]
+components = ["rust-src", "clippy", "rustfmt"]
