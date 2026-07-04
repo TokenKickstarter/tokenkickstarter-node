@@ -21,7 +21,7 @@ serde_json = { workspace = true }
 log = { version = "0.4" }
 hex = { version = "0.4", default-features = false }
 # TKS Local Dependencies
-cipher-relay = { path = "../../cipher-relay" }
+cipher-relay = { path = "../cipher-relay" }
 
 
 # Substrate Client

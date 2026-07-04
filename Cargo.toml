@@ -7,6 +7,7 @@ members = [
     "pallets/pallet-hyperswarm-anchor",
     "pallets/pallet-adaptive-gas",
     "calc-ecdsa",
+    "cipher-relay",
 ]
 resolver = "2"
 
