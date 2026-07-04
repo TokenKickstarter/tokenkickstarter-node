@@ -77,7 +77,13 @@ jobs:
       - name: Install Dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install protobuf llvm || true
+          HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install protobuf llvm
+          LLVM_PREFIX="$(brew --prefix llvm)"
+          echo "LIBCLANG_PATH=${LLVM_PREFIX}/lib" >> $GITHUB_ENV
+          echo "LDFLAGS=-L${LLVM_PREFIX}/lib" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I${LLVM_PREFIX}/include" >> $GITHUB_ENV
+          echo "${LLVM_PREFIX}/bin" >> $GITHUB_PATH
+
 
       - name: Install Dependencies (Windows)
         if: runner.os == 'Windows'
