@@ -1,1 +1,28 @@
-target/
+# Build artifacts
+/target/
+**/target/
+
+# Node logs
+*.log
+node_output*.log
+
+# Rust
+**/*.rs.bk
+Cargo.lock.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Secrets / keys (use network/ scripts to manage)
+*.key.secret
+secrets/
+
+# Compiled test binaries
+test_sig
