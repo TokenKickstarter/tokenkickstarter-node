@@ -213,6 +213,9 @@ jobs:
 
       - name: Install Rust (for chainspec)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rust-src
 
       - name: Install system deps for chainspec build
         run: |
@@ -220,6 +223,8 @@ jobs:
           sudo apt-get install -y build-essential pkg-config libssl-dev clang libclang-dev protobuf-compiler
 
       - name: Build native binary for chainspec generation
+        env:
+          WASM_BUILD_RUSTFLAGS: "-C link-arg=--allow-undefined"
         run: cargo build --release
 
       - name: Generate chainspec files
