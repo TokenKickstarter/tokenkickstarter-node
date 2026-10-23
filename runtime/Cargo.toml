@@ -1,6 +1,6 @@
 [package]
 name = "tks-runtime"
-version = "0.1.0"
+version = "0.1.1"
 description = "TKS (TokenKickstarter) Substrate runtime — NPoS consensus, TKS token, staking, treasury, EVM, username registry"
 authors.workspace = true
 edition.workspace = true

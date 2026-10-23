@@ -25,7 +25,7 @@ warn() { echo -e "${YELLOW}⚠${RESET}  $*"; }
 die()  { echo -e "${RED}✗${RESET} $*"; exit 1; }
 
 # ── Configuration — EDIT THESE ───────────────────────────────────
-VERSION="v0.1.0"
+VERSION="v0.1.1"
 SSH_KEY="${SSH_KEY:-$HOME/Downloads/mobile-app/ninjaswap-mobile-design/.tks_vps_key}"
 SSH_USER="${SSH_USER:-root}"
 

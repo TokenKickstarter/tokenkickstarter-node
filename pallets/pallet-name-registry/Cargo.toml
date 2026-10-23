@@ -1,6 +1,6 @@
 [package]
 name = "pallet-name-registry"
-version = "0.1.0"
+version = "0.1.1"
 description = "TKS on-chain username registry — optional global @usernames for Cipher identities"
 authors.workspace = true
 edition.workspace = true

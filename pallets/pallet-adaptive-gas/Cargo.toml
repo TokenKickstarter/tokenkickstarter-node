@@ -1,6 +1,6 @@
 [package]
 name    = "pallet-adaptive-gas"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["TKS Team"]
 description = "Adaptive block gas limit and block size — auto-scales TPS based on network load."

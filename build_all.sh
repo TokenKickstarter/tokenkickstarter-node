@@ -24,7 +24,7 @@ set -euo pipefail
 BINARY_NAME="tks-chain-node"
 VERSION=$(grep '^version' node/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
 if [ -z "$VERSION" ]; then
-    VERSION="0.1.0"
+    VERSION="0.1.1"
 fi
 
 OUTPUT_DIR="./releases/v${VERSION}"

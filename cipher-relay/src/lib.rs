@@ -361,7 +361,7 @@ async fn handle_relay_request(req: RelayRequest, store: &SharedStore) -> Vec<u8>
 pub async fn run_relay_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     // Note: Logging should be initialized by the outer caller (e.g. Substrate node or our main.rs wrapper)
 
-    info!("🚀 Cipher Storage Swarm Relay v0.1.0");
+    info!("🚀 Cipher Storage Swarm Relay v0.1.1");
     info!("📋 Blueprint §3.5: Encrypted chunk storage with TTL auto-delete");
 
     // Storage backend (100 GB max)

@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "calc-ecdsa"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "keccak-hash",
@@ -1154,7 +1154,7 @@ dependencies = [
 
 [[package]]
 name = "cipher-relay"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bincode",
  "bytes",
@@ -6152,7 +6152,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "pallet-adaptive-gas"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -6408,7 +6408,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyperswarm-anchor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -6422,7 +6422,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-name-registry"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -6476,7 +6476,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-shard-registry"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -10915,7 +10915,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tks-chain-node"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cipher-relay",
  "clap",
@@ -10976,7 +10976,7 @@ dependencies = [
 
 [[package]]
 name = "tks-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ethereum",
  "fp-account",

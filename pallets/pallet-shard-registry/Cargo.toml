@@ -1,6 +1,6 @@
 [package]
 name = "pallet-shard-registry"
-version = "0.1.0"
+version = "0.1.1"
 description = "TKS HyperSwarm shard registry — maps validators to message shards with VRF-based epoch rotation"
 authors.workspace = true
 edition.workspace = true

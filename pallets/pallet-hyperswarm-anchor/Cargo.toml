@@ -1,6 +1,6 @@
 [package]
 name = "pallet-hyperswarm-anchor"
-version = "0.1.0"
+version = "0.1.1"
 description = "TKS HyperSwarm anchor — stores DAG Merkle root hashes on the root chain for provable message delivery"
 authors.workspace = true
 edition.workspace = true
