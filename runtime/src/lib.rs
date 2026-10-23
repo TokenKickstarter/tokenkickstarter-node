@@ -18,7 +18,9 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 extern crate alloc;
 
+mod adaptive_gas_on_charge;
 mod precompiles;
+use adaptive_gas_on_charge::AdaptiveGasOnCharge;
 use precompiles::FrontierPrecompiles;
 
 use alloc::vec;
@@ -129,7 +131,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     /// Nodes with different spec_version CANNOT sync with each other.
     /// A node with lower spec_version will refuse blocks from higher.
     /// Tolerance: ±4 versions (396–404 will still sync with warning).
-    spec_version: 403,
+    spec_version: 404,
     /// Bump when node implementation changes but state transition is same
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
@@ -817,7 +819,7 @@ impl pallet_evm::Config for Runtime {
     type ChainId = EVMChainId;
     type BlockGasLimit = pallet_adaptive_gas::AdaptiveGasLimitGet<Runtime>;
     type Runner = pallet_evm::runner::stack::Runner<Self>;
-    type OnChargeTransaction = ();
+    type OnChargeTransaction = AdaptiveGasOnCharge<Self>;
     type OnCreate = ();
     type FindAuthor = FindAuthorTruncated<Aura>;
     type GasLimitPovSizeRatio = GasLimitPovSizeRatio;

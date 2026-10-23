@@ -9,7 +9,7 @@ set -e
 
 BOOTNODE_IP="${1:-}"
 NODE_TYPE="${2:-fullnode}"   # bootnode | fullnode | validator
-VERSION="v0.3.0"
+VERSION="${VERSION:-v0.1.0}"
 PEER_ID="12D3KooWNaz3nEXYRCWJUtEFXrpo2DpiuM1XuRuZ9HsKR2GDh9tT"
 
 # ── Check root ───────────────────────────────────────────────

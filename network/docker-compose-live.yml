@@ -1,0 +1,115 @@
+# TKS Layer-1 — matches /opt/tks-docker/ on VPS (fullnode + 2 validators)
+# Use AFTER replacing Alice/Bob keys and loading a production chain spec.
+#
+# Build: docker compose -f network/docker-compose-live.yml build
+# Up:    docker compose -f network/docker-compose-live.yml up -d
+
+version: "3.8"
+
+x-validator-common: &validator-common
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  restart: always
+  networks:
+    - tks-bridge
+  volumes:
+    - type: bind
+      source: ./chainspec-raw.json
+      target: /chainspec.json
+      read_only: true
+
+services:
+  tks-fullnode:
+    <<: *validator-common
+    container_name: tks-fullnode
+    ports:
+      - "127.0.0.1:9944:9944"
+      - "30333:30333"
+      - "127.0.0.1:4002:4002"
+    volumes:
+      - tks-data-fullnode:/data
+      - type: bind
+        source: ./chainspec-raw.json
+        target: /chainspec.json
+        read_only: true
+    command: >
+      --chain /chainspec.json
+      --base-path /data
+      --name TKS-Fullnode
+      --rpc-port 9944
+      --rpc-external
+      --rpc-cors all
+      --rpc-methods Safe
+      --ws-external
+      --port 30333
+      --pool-limit 50000
+      --pool-kbytes 65536
+      --enable-cipher-relay
+      --cipher-relay-port=4002
+      --bootnodes /bootnodes.txt
+
+  tks-validator1:
+    <<: *validator-common
+    container_name: tks-validator1
+    volumes:
+      - tks-data-validator1:/data
+      - type: bind
+        source: ./chainspec-raw.json
+        target: /chainspec.json
+        read_only: true
+      - type: bind
+        source: ./validator1-key
+        target: /node-key
+        read_only: true
+    command: >
+      --chain /chainspec.json
+      --base-path /data
+      --validator
+      --name TKS-Validator-1
+      --node-key-file /node-key
+      --rpc-port 9944
+      --rpc-external
+      --rpc-cors all
+      --rpc-methods Safe
+      --port 30333
+      --pool-limit 50000
+      --pool-kbytes 65536
+      --bootnodes /bootnodes.txt
+
+  tks-validator2:
+    <<: *validator-common
+    container_name: tks-validator2
+    volumes:
+      - tks-data-validator2:/data
+      - type: bind
+        source: ./chainspec-raw.json
+        target: /chainspec.json
+        read_only: true
+      - type: bind
+        source: ./validator2-key
+        target: /node-key
+        read_only: true
+    command: >
+      --chain /chainspec.json
+      --base-path /data
+      --validator
+      --name TKS-Validator-2
+      --node-key-file /node-key
+      --rpc-port 9944
+      --rpc-external
+      --rpc-cors all
+      --rpc-methods Safe
+      --port 30333
+      --pool-limit 50000
+      --pool-kbytes 65536
+      --bootnodes /bootnodes.txt
+
+networks:
+  tks-bridge:
+    driver: bridge
+
+volumes:
+  tks-data-fullnode:
+  tks-data-validator1:
+  tks-data-validator2:
