@@ -226,7 +226,7 @@ Docker Compose: `docker compose -f network/docker-compose-live.yml up -d`
 
 ### Upgrade an existing deployment
 
-Download the release binary for your platform from [Releases](https://github.com/TokenKickstarter/tokenkickstarter-node/releases) (current line: **v0.1.8**), replace the running binary or rebuild the image, then restart the service or containers. On-chain runtime features (for example name batch registration, spec 408+) require a separate WASM `set_code` upgrade.
+Download the release binary for your platform from [Releases](https://github.com/TokenKickstarter/tokenkickstarter-node/releases) (current line: **v0.1.9**), replace the running binary or rebuild the image, then restart the service or containers. On-chain runtime features (for example name batch registration, spec 408+) require a separate WASM `set_code` upgrade.
 
 ---
 
@@ -244,10 +244,7 @@ Download the release binary for your platform from [Releases](https://github.com
 | [network/CIPHER-TKS-THROUGHPUT-SPEC.md](network/CIPHER-TKS-THROUGHPUT-SPEC.md) | Throughput targets and benchmarks |
 | [network/NAME-REGISTRY-THROUGHPUT.md](network/NAME-REGISTRY-THROUGHPUT.md) | `@username` batch registration |
 | [tools/cipher-loadtest/README.md](tools/cipher-loadtest/README.md) | Load test harness |
-| [SECURITY-CHANGELOG.md](SECURITY-CHANGELOG.md) | Security and remediation tracking |
-| [network/AUDIT-REMEDIATION-v0.1.8.md](network/AUDIT-REMEDIATION-v0.1.8.md) | Internal audit follow-ups |
-| [network/PRODUCTION-DEPLOYMENT-CHECKLIST.md](network/PRODUCTION-DEPLOYMENT-CHECKLIST.md) | Docker / VPS verification |
-| [network/MAINNET-GENESIS-CHECKLIST.md](network/MAINNET-GENESIS-CHECKLIST.md) | Production genesis (not local dev spec) |
+| [RELEASE_NOTES.md](RELEASE_NOTES.md) | Version history and upgrade notes |
 
 Wiki pages under `.github/wiki/` cover EVM, RPC, validators, and release CI in more detail.
 

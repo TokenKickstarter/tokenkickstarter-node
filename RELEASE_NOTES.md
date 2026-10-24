@@ -2,8 +2,6 @@
 
 Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter/tokenkickstarter-node/releases). The release workflow merges the section for the tagged version with `.github/release-footer.md`.
 
-Security-related entries: [SECURITY-CHANGELOG.md](SECURITY-CHANGELOG.md).
-
 ---
 
 ## v0.1.9
@@ -27,12 +25,6 @@ Audit remediation release (code + operator tooling). **Runtime spec 410** — ex
 
 - `--chain tks-network` loads [network/tks-network-spec.json](network/tks-network-spec.json) (Live / `TKS Network` template).
 - Scripts: [network/scripts/bootstrap-production-genesis.sh](network/scripts/bootstrap-production-genesis.sh), [network/scripts/build-tks-network-spec.sh](network/scripts/build-tks-network-spec.sh).
-
-### Documentation
-
-- [network/AUDIT-REMEDIATION-v0.1.8.md](network/AUDIT-REMEDIATION-v0.1.8.md)
-- [network/PRODUCTION-DEPLOYMENT-CHECKLIST.md](network/PRODUCTION-DEPLOYMENT-CHECKLIST.md)
-- [network/MAINNET-GENESIS-CHECKLIST.md](network/MAINNET-GENESIS-CHECKLIST.md)
 
 ### Upgrade (Linux amd64 example)
 

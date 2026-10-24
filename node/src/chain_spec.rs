@@ -110,7 +110,7 @@ pub fn development_config() -> Result<ChainSpec, String> {
 /// Local testnet config (two validators for multi-node testing).
 ///
 /// **Not for production or investor-facing networks.** Uses public Alice/Bob session keys
-/// and `ChainType::Local`. Production must use a fresh genesis from `network/MAINNET-GENESIS-CHECKLIST.md`.
+/// and `ChainType::Local`. Production must use `--chain tks-network` with `network/tks-network-spec.json`.
 pub fn local_testnet_config() -> Result<ChainSpec, String> {
     let mut properties = sc_service::Properties::new();
     properties.insert("tokenSymbol".into(), "TKS".into());
@@ -121,7 +121,7 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
         tks_runtime::WASM_BINARY.ok_or_else(|| "Local testnet wasm not available".to_string())?,
         None,
     )
-    .with_name("TKS Local Testnet") // DEV ONLY — see MAINNET-GENESIS-CHECKLIST.md
+    .with_name("TKS Local Testnet") // DEV ONLY — use tks-network spec for production
     .with_id("tks_local")
     .with_chain_type(ChainType::Local)
     .with_properties(properties)
