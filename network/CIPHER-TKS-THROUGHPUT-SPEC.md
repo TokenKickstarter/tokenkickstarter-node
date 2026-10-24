@@ -197,7 +197,7 @@ Open-source harness (repo path TBD: `tools/cipher-loadtest/`):
 |-----------|-------------|---------------|
 | **M0 Security** | Key rotation, ≥4 validators, safe RPC | No Alice/Bob sudo; see performance report §4 |
 | **M1 Relay SLO** | Relay hardening + metrics | 20k+ msg/s single region, p99 < 100 ms lab |
-| **M2 One shard** | `cipher-shard-executor` v0 | 1 shard registered; anchors on L1; DA verify |
+| **M2 One shard** | `cipher-shard-executor` v0 (**in repo**) | 1 shard registered; anchors on L1; DA verify |
 | **M3 Measure shard** | Public testnet + harness | **≥25k sustained** one shard, third-party replay |
 | **M4 Scale out** | 8–16 shards | **≥400k aggregate** adaptive window; document shard count |
 | **M5 Disputes** | Challenge resolution | Invalid anchor test causes slash/offboard |

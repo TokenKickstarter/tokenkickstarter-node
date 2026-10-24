@@ -35,7 +35,9 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
+    pub trait Config:
+        frame_system::Config<RuntimeEvent: From<Event<Self>>> + pallet_shard_registry::Config
+    {
         /// Maximum age (in blocks) for submitting a challenge.
         /// Default: 7 days = 100800 blocks at 6s/block.
         #[pallet::constant]
@@ -177,6 +179,8 @@ pub mod pallet {
         ChallengeNotPending,
         /// Invalid message count (must be > 0).
         ZeroMessageCount,
+        /// Shard id is out of range for the active shard set.
+        InvalidShardId,
     }
 
     // ─── Extrinsics ────────────────────────────────────────────────────
@@ -203,12 +207,17 @@ pub mod pallet {
             message_count: u32,
             epoch: u32,
         ) -> DispatchResultWithPostInfo {
-            let _who = ensure_signed(origin)?;
-
-            // TODO: Verify caller is an assigned validator for this shard
-            // by reading from pallet-shard-registry. For now, open posting.
+            let who = ensure_signed(origin)?;
 
             ensure!(message_count > 0, Error::<T>::ZeroMessageCount);
+            ensure!(
+                shard_id < pallet_shard_registry::Pallet::<T>::active_shard_count(),
+                Error::<T>::InvalidShardId,
+            );
+            ensure!(
+                pallet_shard_registry::Pallet::<T>::is_shard_validator(&who, shard_id),
+                Error::<T>::NotShardValidator,
+            );
 
             let now = frame_system::Pallet::<T>::block_number();
 

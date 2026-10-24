@@ -1153,6 +1153,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cipher-loadtest"
+version = "0.1.1"
+dependencies = [
+ "chrono",
+ "clap",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "cipher-relay"
 version = "0.1.1"
 dependencies = [
@@ -1168,6 +1182,26 @@ dependencies = [
  "libp2p",
  "log",
  "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "cipher-shard-executor"
+version = "0.1.1"
+dependencies = [
+ "bytes",
+ "chrono",
+ "clap",
+ "env_logger",
+ "hex",
+ "http-body-util",
+ "hyper 1.8.1",
+ "hyper-util",
+ "log",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -6413,6 +6447,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
+ "pallet-shard-registry",
  "parity-scale-codec",
  "scale-info",
  "sp-core",

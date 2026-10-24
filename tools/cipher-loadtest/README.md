@@ -17,4 +17,25 @@ Implements the benchmark contract in [`network/CIPHER-TKS-THROUGHPUT-SPEC.md`](.
 2. **Shard + anchor** — distributed senders → shard executor → `HyperSwarmAnchor::post_anchor` + DA verify.
 3. **Third-party replay** — same config, independent operator, ±10% of claimed aggregate.
 
-Implementation tracked under milestone **M3** in the spec.
+## Run (phase 1 — relay)
+
+```bash
+cargo run -p cipher-loadtest -- --relay-url http://127.0.0.1:4002 --messages 5000 --concurrency 50
+```
+
+Writes `cipher_load_results.json` in the current directory.
+
+## Shard executor (phase 2)
+
+```bash
+cargo run -p cipher-shard-executor -- --shard-id 0 --port 4010 --da-dir ./data/da --anchors-dir ./data/anchors
+curl -X POST http://127.0.0.1:4010/ingest -H 'content-type: application/json' -d '{
+  "msg_id":"1","sender_id":"a","recipient_id":"b",
+  "ciphertext_hash":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  "stored_at":1
+}'
+```
+
+After the anchor interval, check `./data/anchors/` for `HyperSwarmAnchor.post_anchor` JSON to submit from a **shard-assigned** validator key.
+
+Implementation: milestone **M2** (executor scaffold) / **M3** (full benchmark + third-party replay).

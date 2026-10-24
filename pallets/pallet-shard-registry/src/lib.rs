@@ -375,6 +375,23 @@ pub mod pallet {
     // ─── Internal Logic ────────────────────────────────────────────────
 
     impl<T: Config> Pallet<T> {
+        /// Returns true if `who` is assigned to `shard_id` for the current epoch.
+        pub fn is_shard_validator(who: &T::AccountId, shard_id: u16) -> bool {
+            if shard_id >= ActiveShardCount::<T>::get() {
+                return false;
+            }
+            ShardValidators::<T>::get(shard_id)
+                .iter()
+                .any(|account| account == who)
+        }
+
+        /// Returns true if the account is an active HyperSwarm validator registration.
+        pub fn is_registered_validator(who: &T::AccountId) -> bool {
+            Validators::<T>::get(who)
+                .map(|v| v.active)
+                .unwrap_or(false)
+        }
+
         /// Execute shard rotation for a new epoch.
         ///
         /// Uses the parent block hash as a VRF seed to deterministically but
@@ -541,6 +558,10 @@ pub mod pallet {
                 "🚀 HyperSwarm genesis: {} shards, {} validators/shard, {} validators registered",
                 shard_count, vps, self.validators.len()
             );
+
+            if TotalValidators::<T>::get() > 0 && shard_count > 0 {
+                Pallet::<T>::do_rotate_shards(BlockNumberFor::<T>::zero());
+            }
         }
     }
 }

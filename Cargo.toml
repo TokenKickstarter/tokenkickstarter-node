@@ -8,6 +8,8 @@ members = [
     "pallets/pallet-adaptive-gas",
     "calc-ecdsa",
     "cipher-relay",
+    "cipher-shard-executor",
+    "tools/cipher-loadtest",
 ]
 resolver = "2"
 
