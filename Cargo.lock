@@ -1175,7 +1175,7 @@ dependencies = [
 
 [[package]]
 name = "cipher-relay"
-version = "0.1.1"
+version = "0.1.7"
 dependencies = [
  "bincode",
  "bytes",
@@ -10961,7 +10961,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tks-chain-node"
-version = "0.1.4"
+version = "0.1.7"
 dependencies = [
  "cipher-hybrid",
  "cipher-relay",
@@ -11006,6 +11006,7 @@ dependencies = [
  "sc-telemetry",
  "sc-transaction-pool",
  "sc-transaction-pool-api",
+ "serde",
  "serde_json",
  "sp-api",
  "sp-block-builder",
@@ -11017,6 +11018,7 @@ dependencies = [
  "sp-io",
  "sp-keyring",
  "sp-runtime",
+ "sp-storage",
  "sp-timestamp",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",

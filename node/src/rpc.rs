@@ -119,7 +119,7 @@ where
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
-    use crate::hyperswarm_rpc::HyperswarmApiServer;
+    use crate::hyperswarm_rpc::{HyperswarmApiServer, HyperswarmRpc};
 
     let mut io = RpcModule::new(());
 
@@ -217,7 +217,7 @@ where
 
     io.merge(Web3::new(client).into_rpc())?;
 
-    io.merge(HyperswarmRpc::new(client.clone()).into_rpc())?;
+    io.merge(HyperswarmRpc::<C, B, BE>::new(client.clone()).into_rpc())?;
 
     Ok(io)
 }

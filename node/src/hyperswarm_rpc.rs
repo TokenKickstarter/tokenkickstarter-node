@@ -4,9 +4,11 @@ use std::sync::Arc;
 
 use codec::Decode;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
+use sc_client_api::backend::Backend;
 use sc_client_api::StorageProvider;
 use sp_blockchain::HeaderBackend;
 use sp_core::twox_128;
+use sp_storage::StorageKey;
 use sp_runtime::traits::{Block as BlockT, UniqueSaturatedInto};
 
 use tks_runtime::{AccountId, Runtime};
@@ -56,12 +58,12 @@ pub trait HyperswarmApi {
     fn network_info(&self) -> RpcResult<HyperswarmNetworkInfo>;
 }
 
-pub struct HyperswarmRpc<C, B> {
+pub struct HyperswarmRpc<C, B, BE> {
     client: Arc<C>,
-    _marker: std::marker::PhantomData<B>,
+    _marker: std::marker::PhantomData<(B, BE)>,
 }
 
-impl<C, B> HyperswarmRpc<C, B> {
+impl<C, B, BE> HyperswarmRpc<C, B, BE> {
     pub fn new(client: Arc<C>) -> Self {
         Self {
             client,
@@ -70,18 +72,18 @@ impl<C, B> HyperswarmRpc<C, B> {
     }
 }
 
-impl<C, B, BE> HyperswarmApiServer for HyperswarmRpc<C, B>
+impl<C, B, BE> HyperswarmApiServer for HyperswarmRpc<C, B, BE>
 where
     B: BlockT,
-    BE: sc_client_api::Backend<B> + 'static,
+    BE: Backend<B> + 'static,
     C: HeaderBackend<B> + StorageProvider<B, BE> + Send + Sync + 'static,
 {
     fn list_swarm_validators(&self) -> RpcResult<Vec<SwarmValidatorInfo>> {
         let at = self.client.info().best_hash;
-        let prefix = validators_key_prefix();
+        let prefix = StorageKey(validators_key_prefix());
         let keys = self
             .client
-            .storage_keys(at, &prefix)
+            .storage_keys(at, Some(&prefix), None)
             .map_err(|e| jsonrpsee::types::ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
 
         let mut out = Vec::new();
@@ -134,7 +136,7 @@ where
 
         let active_shard_count = self
             .client
-            .storage(at, &sp_storage::StorageKey(shard_key))
+            .storage(at, &StorageKey(shard_key))
             .ok()
             .flatten()
             .and_then(|v| u16::decode(&mut &v.0[..]).ok())
@@ -142,7 +144,7 @@ where
 
         let current_epoch = self
             .client
-            .storage(at, &sp_storage::StorageKey(epoch_key))
+            .storage(at, &StorageKey(epoch_key))
             .ok()
             .flatten()
             .and_then(|v| u32::decode(&mut &v.0[..]).ok())
