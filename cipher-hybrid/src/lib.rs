@@ -180,6 +180,7 @@ impl HybridController {
             measured_tps: self.measured_tps(),
             lifetime_ingress: self.lifetime_ingress.load(Ordering::Relaxed),
             lifetime_sealed: self.lifetime_sealed.load(Ordering::Relaxed),
+            metrics_note: "settings.target_* and config.ceiling_* are configured ceilings, not verified fleet TPS; measured_tps is a local rolling estimate; lifetime_ingress counts relay /store accepts only",
         }
     }
 
@@ -206,9 +207,13 @@ impl std::fmt::Debug for HybridController {
 pub struct HybridSnapshot {
     pub config: HybridConfig,
     pub settings: HybridSettings,
+    /// Rolling estimate from recent window (not a capacity guarantee).
     pub measured_tps: u64,
+    /// Accepted messages at the relay edge (`/store`); one count per client upload.
     pub lifetime_ingress: u64,
     pub lifetime_sealed: u64,
+    /// How to interpret this snapshot for investors and benchmarks.
+    pub metrics_note: &'static str,
 }
 
 #[cfg(test)]

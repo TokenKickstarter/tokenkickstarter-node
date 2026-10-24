@@ -67,7 +67,7 @@ async fn handle_hybrid(
                 Ok(m) => m,
                 Err(e) => return err(StatusCode::BAD_REQUEST, &format!("invalid json: {e}")),
             };
-            hybrid.record_ingress();
+            // Ingress is counted once at the relay `/store` when using embedded node + forward.
             let local = hybrid.shard_route_index(&msg.recipient_id);
             let mut guard = engine.lock().await;
             guard.ingest(local, msg);

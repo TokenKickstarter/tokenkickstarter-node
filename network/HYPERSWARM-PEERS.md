@@ -36,6 +36,8 @@ ShardRegistry.register_validator(region, endpoint)
 2. Fallback: JSON-RPC `tks_listSwarmValidators` on any TKS RPC
 3. Try `relays[]` in priority order (`self` → `chain` → `gossip`)
 
+The optional `hybrid` object in `/discovery` mirrors `GET /hybrid/stats`. Fields under `config` and `settings.target_*` are **configured ceilings** (for example 500k aggregate, 8 logical shards), not proof of measured fleet throughput. Use `measured_tps`, `lifetime_ingress`, and `metrics_note` for honest reporting.
+
 ## RPC (any TKS node)
 
 - `tks_listSwarmValidators` — active registrations from chain

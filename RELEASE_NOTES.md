@@ -2,6 +2,23 @@
 
 Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter/tokenkickstarter-node/releases). The release workflow merges the section for the tagged version with `.github/release-footer.md`.
 
+Security-related entries: [SECURITY-CHANGELOG.md](SECURITY-CHANGELOG.md).
+
+---
+
+## Unreleased (post audit v0.1.8)
+
+### Fixes
+
+- Hybrid `lifetime_ingress` no longer double-counts when relay forwards to shard ingest on the same node.
+- Hybrid snapshot includes `metrics_note` (configured ceilings vs measured TPS).
+
+### Documentation
+
+- [network/AUDIT-REMEDIATION-v0.1.8.md](network/AUDIT-REMEDIATION-v0.1.8.md)
+- [network/PRODUCTION-DEPLOYMENT-CHECKLIST.md](network/PRODUCTION-DEPLOYMENT-CHECKLIST.md)
+- [network/MAINNET-GENESIS-CHECKLIST.md](network/MAINNET-GENESIS-CHECKLIST.md)
+
 ---
 
 ## v0.1.8

@@ -108,6 +108,9 @@ pub fn development_config() -> Result<ChainSpec, String> {
 
 
 /// Local testnet config (two validators for multi-node testing).
+///
+/// **Not for production or investor-facing networks.** Uses public Alice/Bob session keys
+/// and `ChainType::Local`. Production must use a fresh genesis from `network/MAINNET-GENESIS-CHECKLIST.md`.
 pub fn local_testnet_config() -> Result<ChainSpec, String> {
     let mut properties = sc_service::Properties::new();
     properties.insert("tokenSymbol".into(), "TKS".into());
@@ -118,7 +121,7 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
         tks_runtime::WASM_BINARY.ok_or_else(|| "Local testnet wasm not available".to_string())?,
         None,
     )
-    .with_name("TKS Local Testnet")
+    .with_name("TKS Local Testnet") // DEV ONLY — see MAINNET-GENESIS-CHECKLIST.md
     .with_id("tks_local")
     .with_chain_type(ChainType::Local)
     .with_properties(properties)
@@ -218,7 +221,7 @@ fn testnet_genesis(
         // Pre-funded H160 accounts for EVM/MetaMask testing.
         // These use the standard Hardhat/Ganache dev private keys.
         //
-        // ⚠️  DEVNET ONLY — replace with real addresses for mainnet.
+        // DEVNET ONLY — replace with real addresses for mainnet.
         //
         // Account 0 — private key: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
         //   MetaMask import → "Private Key" → paste the key above
