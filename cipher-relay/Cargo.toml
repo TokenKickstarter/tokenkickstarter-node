@@ -1,6 +1,6 @@
 [package]
 name = "cipher-relay"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 description = "Cipher Storage Swarm Relay — libp2p message relay running alongside TKS node"
 

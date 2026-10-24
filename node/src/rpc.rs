@@ -215,9 +215,9 @@ where
         Net::new(client.clone(), network, true).into_rpc(),
     )?;
 
-    io.merge(Web3::new(client).into_rpc())?;
-
     io.merge(HyperswarmRpc::<C, B, BE>::new(client.clone()).into_rpc())?;
+
+    io.merge(Web3::new(client).into_rpc())?;
 
     Ok(io)
 }
