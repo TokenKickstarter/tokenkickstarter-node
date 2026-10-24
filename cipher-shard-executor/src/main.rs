@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 
 use clap::Parser;
 use cipher_hybrid::{HybridConfig, HybridController};
@@ -36,7 +37,7 @@ async fn main() -> Result<(), String> {
     };
     run_embedded(EmbeddedExecutorConfig {
         shard_id: args.shard_id,
-        epoch: args.epoch,
+        epoch: Arc::new(AtomicU32::new(args.epoch)),
         port: args.port,
         anchor_interval_secs: args.anchor_interval_secs,
         da_dir: args.da_dir,
