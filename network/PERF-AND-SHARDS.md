@@ -1,5 +1,7 @@
 # TKS performance: what we can claim vs what to build
 
+**Cipher messaging (500k adaptive, ms latency):** see **[CIPHER-TKS-THROUGHPUT-SPEC.md](./CIPHER-TKS-THROUGHPUT-SPEC.md)** — data plane vs L1, SLOs, anchors, benchmarks.
+
 ## Your summary is mostly right — one correction
 
 | Claim | Verdict |
