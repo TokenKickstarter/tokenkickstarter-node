@@ -140,6 +140,14 @@ impl ChunkStore {
 
 type SharedStore = Arc<RwLock<ChunkStore>>;
 
+/// HTTP relay server options (embedded in TKS node or standalone).
+#[derive(Clone, Debug)]
+pub struct RelayServerConfig {
+    pub port: u16,
+    /// When set, successful `/store` and `Store` relay ops forward batch leaves here.
+    pub shard_ingest_url: Option<String>,
+}
+
 // ─────────────────────────────────────────────────────────
 // HTTP Handler
 // ─────────────────────────────────────────────────────────
@@ -147,6 +155,7 @@ type SharedStore = Arc<RwLock<ChunkStore>>;
 async fn handle_request(
     req: Request<Incoming>,
     store: SharedStore,
+    shard_ingest_url: Option<String>,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
     // CORS headers for all responses
     let cors_headers = |mut resp: Response<Full<Bytes>>| -> Response<Full<Bytes>> {
@@ -180,7 +189,9 @@ async fn handle_request(
         "/relay" => {
             // Generic bincode endpoint (used by client-core direct.rs)
             match bincode::deserialize::<RelayRequest>(&body_bytes) {
-                Ok(relay_req) => handle_relay_request(relay_req, &store).await,
+                Ok(relay_req) => {
+                    handle_relay_request(relay_req, &store, shard_ingest_url.clone()).await
+                }
                 Err(e) => {
                     let resp = RelayResponse::Error(format!("Decode error: {}", e));
                     bincode::serialize(&resp).unwrap_or_default()
@@ -192,7 +203,8 @@ async fn handle_request(
             match serde_json::from_slice::<EncryptedChunk>(&body_bytes) {
                 Ok(chunk) => {
                     let req = RelayRequest::Store(chunk);
-                    let resp_bytes = handle_relay_request(req, &store).await;
+                    let resp_bytes =
+                        handle_relay_request(req, &store, shard_ingest_url.clone()).await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -206,7 +218,8 @@ async fn handle_request(
                 Ok(val) => {
                     let recipient_id = val["recipient_id"].as_str().unwrap_or("").to_string();
                     let req = RelayRequest::Fetch { recipient_id };
-                    let resp_bytes = handle_relay_request(req, &store).await;
+                    let resp_bytes =
+                        handle_relay_request(req, &store, shard_ingest_url.clone()).await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -224,7 +237,8 @@ async fn handle_request(
                         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
                         .unwrap_or_default();
                     let req = RelayRequest::Ack { recipient_id, message_ids };
-                    let resp_bytes = handle_relay_request(req, &store).await;
+                    let resp_bytes =
+                        handle_relay_request(req, &store, shard_ingest_url.clone()).await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -238,7 +252,8 @@ async fn handle_request(
                 Ok(val) => {
                     let evm_address = val["evm_address"].as_str().unwrap_or("").to_string();
                     let req = RelayRequest::Register { evm_address };
-                    let resp_bytes = handle_relay_request(req, &store).await;
+                    let resp_bytes =
+                        handle_relay_request(req, &store, shard_ingest_url.clone()).await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -274,16 +289,49 @@ async fn handle_request(
     Ok(cors_headers(resp))
 }
 
-async fn handle_relay_request(req: RelayRequest, store: &SharedStore) -> Vec<u8> {
+async fn forward_shard_ingest(url: &str, chunk: &EncryptedChunk, msg_id: &str) {
+    use sha2::{Digest, Sha256};
+    let hash: [u8; 32] = Sha256::digest(&chunk.ciphertext).into();
+    let body = serde_json::json!({
+        "msg_id": msg_id,
+        "sender_id": "cipher-relay",
+        "recipient_id": chunk.recipient_id,
+        "ciphertext_hash": hash,
+        "stored_at": chunk.stored_at,
+    });
+    match reqwest::Client::new().post(url).json(&body).send().await {
+        Ok(resp) if resp.status().is_success() => {}
+        Ok(resp) => {
+            log::warn!(
+                "Cipher shard ingest returned HTTP {} for msg {}",
+                resp.status(),
+                msg_id
+            );
+        }
+        Err(e) => log::warn!("Cipher shard ingest forward failed for {}: {e}", msg_id),
+    }
+}
+
+async fn handle_relay_request(
+    req: RelayRequest,
+    store: &SharedStore,
+    shard_ingest_url: Option<String>,
+) -> Vec<u8> {
     let response = match req {
         RelayRequest::Store(chunk) => {
             let recipient = chunk.recipient_id.clone();
             let mut s = store.write().await;
-            match s.store(chunk) {
+            match s.store(chunk.clone()) {
                 Ok(msg_id) => {
                     info!("📦 Stored message {} for {}", msg_id, recipient);
                     if let Some(notifier) = s.notifiers.get(&recipient) {
                         notifier.notify_waiters();
+                    }
+                    if let Some(url) = shard_ingest_url {
+                        let mid = msg_id.clone();
+                        tokio::spawn(async move {
+                            forward_shard_ingest(&url, &chunk, &mid).await;
+                        });
                     }
                     RelayResponse::Stored { message_id: msg_id }
                 }
@@ -359,7 +407,18 @@ async fn handle_relay_request(req: RelayRequest, store: &SharedStore) -> Vec<u8>
 // ─────────────────────────────────────────────────────────
 
 pub async fn run_relay_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    // Note: Logging should be initialized by the outer caller (e.g. Substrate node or our main.rs wrapper)
+    run_relay_server_with(RelayServerConfig {
+        port,
+        shard_ingest_url: None,
+    })
+    .await
+}
+
+pub async fn run_relay_server_with(
+    config: RelayServerConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let port = config.port;
+    let shard_ingest_url = config.shard_ingest_url.clone();
 
     info!("🚀 Cipher Storage Swarm Relay v0.1.1");
     info!("📋 Blueprint §3.5: Encrypted chunk storage with TTL auto-delete");
@@ -384,17 +443,22 @@ pub async fn run_relay_server(port: u16) -> Result<(), Box<dyn std::error::Error
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("🌐 HTTP REST API listening on http://0.0.0.0:{}", port);
     info!("   Endpoints: /relay /store /fetch /ack /register /stats");
+    if let Some(ref url) = shard_ingest_url {
+        info!("   Shard ingest forward: {url}");
+    }
 
     loop {
         let (stream, remote_addr) = listener.accept().await?;
         let store = store.clone();
+        let ingest = shard_ingest_url.clone();
         debug!("Connection from {}", remote_addr);
 
         tokio::spawn(async move {
             let io = TokioIo::new(stream);
             let service = service_fn(move |req| {
                 let store = store.clone();
-                handle_request(req, store)
+                let ingest = ingest.clone();
+                async move { handle_request(req, store, ingest).await }
             });
 
             if let Err(e) = hyper::server::conn::http1::Builder::new()

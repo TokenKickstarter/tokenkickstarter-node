@@ -191,11 +191,18 @@ pub fn run() -> sc_cli::Result<()> {
             runner.sync_run(|config| cmd.run::<tks_runtime::Block>(&config))
         }
         None => {
-            let enable_cipher_relay = cli.enable_cipher_relay;
-            let cipher_relay_port = cli.cipher_relay_port;
+            let cipher = service::CipherStackConfig {
+                enable_relay: cli.enable_cipher_relay,
+                relay_port: cli.cipher_relay_port,
+                enable_shard_executor: cli.enable_cipher_shard_executor,
+                shard_port: cli.cipher_shard_port,
+                shard_id: cli.cipher_shard_id,
+                shard_epoch: cli.cipher_shard_epoch,
+                anchor_interval_secs: cli.cipher_anchor_interval_secs,
+            };
             let runner = cli.create_runner(&cli.run)?;
             runner.run_node_until_exit(|config| async move {
-                service::new_full(config, enable_cipher_relay, cipher_relay_port).map_err(sc_cli::Error::Service)
+                service::new_full(config, cipher).map_err(sc_cli::Error::Service)
             })
         }
     }

@@ -11,7 +11,8 @@ services:
       - "30333:30333"      # Substrate libp2p port
       - "9944:9944"        # Substrate WS port
       - "9933:9933"        # Substrate RPC port
-      - "127.0.0.1:4002:4002"  # Embedded Cipher Relay REST API (mapped locally for NGINX to proxy)
+      - "127.0.0.1:4002:4002"  # Cipher relay
+      - "127.0.0.1:4010:4010"  # Cipher shard executor ingest (internal)
     volumes:
       - tks-data:/data
     command: >
@@ -22,6 +23,9 @@ services:
       --rpc-cors=all
       --enable-cipher-relay
       --cipher-relay-port=4002
+      --enable-cipher-shard-executor
+      --cipher-shard-port=4010
+      --cipher-shard-id=0
 
 volumes:
   tks-data:

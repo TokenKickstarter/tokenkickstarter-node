@@ -25,7 +25,16 @@ cargo run -p cipher-loadtest -- --relay-url http://127.0.0.1:4002 --messages 500
 
 Writes `cipher_load_results.json` in the current directory.
 
-## Shard executor (phase 2)
+## Embedded in `tks-chain-node` (default)
+
+Relay `:4002` and shard executor `:4010` start together. Stored messages auto-forward to `/ingest`. DA + anchor JSON under `{base-path}/cipher/da` and `cipher/anchors`.
+
+```bash
+tks-chain-node ... --enable-cipher-relay --cipher-relay-port=4002 \
+  --enable-cipher-shard-executor --cipher-shard-port=4010 --cipher-shard-id=0
+```
+
+## Standalone shard executor (phase 2)
 
 ```bash
 cargo run -p cipher-shard-executor -- --shard-id 0 --port 4010 --da-dir ./data/da --anchors-dir ./data/anchors

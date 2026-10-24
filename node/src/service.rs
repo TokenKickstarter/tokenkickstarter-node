@@ -189,11 +189,22 @@ pub fn new_partial(
     })
 }
 
+/// Embedded Cipher relay + shard executor settings.
+#[derive(Clone, Debug)]
+pub struct CipherStackConfig {
+    pub enable_relay: bool,
+    pub relay_port: u16,
+    pub enable_shard_executor: bool,
+    pub shard_port: u16,
+    pub shard_id: u16,
+    pub shard_epoch: u32,
+    pub anchor_interval_secs: u64,
+}
+
 /// Build and start the full TKS node.
 pub fn new_full(
     config: Configuration,
-    enable_cipher_relay: bool,
-    cipher_relay_port: u16,
+    cipher: CipherStackConfig,
 ) -> Result<TaskManager, ServiceError> {
     let sc_service::PartialComponents {
         client,
@@ -494,12 +505,48 @@ pub fn new_full(
             .spawn_blocking("grandpa-voter", None, grandpa);
     }
 
-    // Start Cipher Relay Messenger task (if enabled)
-    if enable_cipher_relay {
+    let cipher_base = config.base_path.path().join("cipher");
+    let da_dir = cipher_base.join("da");
+    let anchors_dir = cipher_base.join("anchors");
+
+    if cipher.enable_shard_executor {
+        let exec_cfg = cipher_shard_executor::EmbeddedExecutorConfig {
+            shard_id: cipher.shard_id,
+            epoch: cipher.shard_epoch,
+            port: cipher.shard_port,
+            anchor_interval_secs: cipher.anchor_interval_secs,
+            da_dir,
+            anchors_dir,
+        };
+        task_manager.spawn_essential_handle().spawn(
+            "cipher-shard-executor",
+            Some("network"),
+            async move {
+                if let Err(e) = cipher_shard_executor::run_embedded(exec_cfg).await {
+                    log::error!("Cipher shard executor exited with error: {e}");
+                }
+            },
+        );
+    }
+
+    if cipher.enable_relay {
+        let relay_port = cipher.relay_port;
+        let shard_ingest_url = if cipher.enable_shard_executor {
+            Some(format!(
+                "http://127.0.0.1:{}/ingest",
+                cipher.shard_port
+            ))
+        } else {
+            None
+        };
         task_manager.spawn_essential_handle().spawn("cipher-relay", Some("network"), async move {
-            log::info!("🚀 Starting Embedded Cipher Relay on port {}...", cipher_relay_port);
-            if let Err(e) = cipher_relay::run_relay_server(cipher_relay_port).await {
-                log::error!("Cipher Relay exited with error: {:?}", e);
+            log::info!("Starting embedded Cipher relay on port {relay_port}...");
+            let relay_cfg = cipher_relay::RelayServerConfig {
+                port: relay_port,
+                shard_ingest_url,
+            };
+            if let Err(e) = cipher_relay::run_relay_server_with(relay_cfg).await {
+                log::error!("Cipher relay exited with error: {e:?}");
             }
         });
     }

@@ -15,6 +15,26 @@ pub struct Cli {
     /// Port for the embedded Cipher Storage Relay HTTP API
     #[arg(long, default_value_t = 4002)]
     pub cipher_relay_port: u16,
+
+    /// Run embedded Cipher shard executor (batch → DA → anchor payloads).
+    #[arg(long, default_value_t = true)]
+    pub enable_cipher_shard_executor: bool,
+
+    /// HTTP ingest port for the embedded shard executor.
+    #[arg(long, default_value_t = 4010)]
+    pub cipher_shard_port: u16,
+
+    /// Shard id this node serves (must match on-chain assignment).
+    #[arg(long, default_value_t = 0)]
+    pub cipher_shard_id: u16,
+
+    /// Epoch label for DA / anchor JSON (sync with chain `current_epoch`).
+    #[arg(long, default_value_t = 0)]
+    pub cipher_shard_epoch: u32,
+
+    /// Seal pending messages to DA + anchor files every N seconds.
+    #[arg(long, default_value_t = 10)]
+    pub cipher_anchor_interval_secs: u64,
 }
 
 #[derive(Debug, clap::Subcommand)]

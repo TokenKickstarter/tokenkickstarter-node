@@ -27,6 +27,7 @@ services:
       - "127.0.0.1:9944:9944"
       - "30333:30333"
       - "127.0.0.1:4002:4002"
+      - "127.0.0.1:4010:4010"
     volumes:
       - tks-data-fullnode:/data
       - type: bind
@@ -47,6 +48,9 @@ services:
       --pool-kbytes 65536
       --enable-cipher-relay
       --cipher-relay-port=4002
+      --enable-cipher-shard-executor
+      --cipher-shard-port=4010
+      --cipher-shard-id=0
       --bootnodes /bootnodes.txt
 
   tks-validator1:
