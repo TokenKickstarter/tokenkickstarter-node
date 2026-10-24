@@ -1,4 +1,4 @@
-# Cipher / HyperSwarm — privacy for investors & auditors
+# Cipher and HyperSwarm: privacy for investors and auditors
 
 ## Can relay peers decrypt photos, video, or messages?
 

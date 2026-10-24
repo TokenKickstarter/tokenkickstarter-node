@@ -80,7 +80,7 @@ Type    Name    Content          TTL
 A       seed    <SERVER_3_IP>    Auto
 ```
 
-> ⚠️ **Important**: Set **Proxy status to DNS only** (grey cloud, not orange).
+> **Important:** Set **Proxy status to DNS only** (grey cloud, not orange).
 > The node needs a direct TCP connection — Cloudflare proxy won't work for port 30333.
 
 ---
@@ -201,10 +201,10 @@ scp network/bootnodes/bootnode-1.key user@NEW_SERVER_1_IP:/opt/tks/
 
 | Server 1 | Server 2 | Server 3 | New nodes can join? |
 |----------|----------|----------|---------------------|
-| ✅ UP | ✅ UP | ✅ UP | ✅ Yes (any seed) |
-| ❌ DOWN | ✅ UP | ✅ UP | ✅ Yes (seeds 2,3) |
-| ❌ DOWN | ❌ DOWN | ✅ UP | ✅ Yes (seed 3) |
-| ❌ DOWN | ❌ DOWN | ❌ DOWN | ⚠️ Existing nodes still sync via saved peers |
+| UP | UP | UP | Yes (any seed) |
+| DOWN | UP | UP | Yes (seeds 2 and 3) |
+| DOWN | DOWN | UP | Yes (seed 3 only) |
+| DOWN | DOWN | DOWN | No for new nodes; existing nodes may sync via saved peers |
 
 ---
 
@@ -216,4 +216,4 @@ Once DNS is set and bootnodes are running, **users just run**:
 ./start-node.sh
 ```
 
-No IP. No configuration. It just works. 🚀
+No IP address or manual bootnode list is required for end users once DNS and seeds are configured.

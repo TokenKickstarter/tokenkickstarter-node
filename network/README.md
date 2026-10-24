@@ -20,8 +20,8 @@
          │(syncing)│    │(syncing) │    │(syncing) │
          └─────────┘    └──────────┘    └──────────┘
 
-  All nodes share the SAME genesis → SAME chain ✅
-  Server IP changes → Update DNS only. Zero downtime. ✅
+  All nodes share the same genesis and the same chain.
+  Server IP changes: update DNS only; no binary change required.
 ```
 
 ---
@@ -137,7 +137,50 @@ Manages node as a systemd service with auto-restart.
 | `server-setup.sh` | Linux systemd install |
 | `purge-chain.sh` | Reset chain data |
 | `docker-compose.yml` | Docker deployment |
+| `docker-compose-live.yml` | Production full node + validators (Cipher flags) |
 | `DNS-SETUP.md` | DNS configuration guide |
+| `HYBRID-THROUGHPUT.md` | Cipher hybrid throughput |
+| `HYPERSWARM-PEERS.md` | Relay mesh and discovery |
+| `CIPHER-CLIENT-CHUNKING-SPEC.md` | Client chunking for large media |
+
+---
+
+## Production RPC node (Cipher + HyperSwarm)
+
+For a public RPC host (for example `rpc.tokenkickstarter.com`), run the full node with embedded Cipher services. Prefer `docker-compose-live.yml` or equivalent flags:
+
+```bash
+docker compose -f docker-compose-live.yml up -d
+```
+
+Key ports:
+
+| Port | Exposure | Purpose |
+|------|----------|---------|
+| 9944 | Public (via nginx or bind) | JSON-RPC / WebSocket |
+| 30333 | Public | Substrate P2P |
+| 4002 | Usually localhost + reverse proxy | Cipher relay HTTP |
+| 4010 | Usually localhost | Shard executor |
+| 4001 | Between peer nodes | HyperSwarm libp2p |
+
+Upgrade to the latest [release binary](https://github.com/TokenKickstarter/tokenkickstarter-node/releases) (for example `tks-chain-node-v0.1.8-linux-amd64`), restart containers or systemd, then verify:
+
+```bash
+curl -s -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"system_health","params":[],"id":1}' \
+  http://127.0.0.1:9944
+curl -s http://127.0.0.1:4002/stats
+```
+
+---
+
+## Upgrade procedure
+
+1. Stop the stack: `docker compose -f docker-compose-live.yml down` or `systemctl stop tks-node`.
+2. Download the matching release artifact for your OS and architecture.
+3. Replace the binary or rebuild the Docker image from tag `v0.1.8` (or newer).
+4. Start again with the same `--base-path` and chainspec (no resync required).
+5. Apply a runtime WASM upgrade separately if you need new on-chain logic (spec 408/409).
 
 ---
 
@@ -150,8 +193,9 @@ Manages node as a systemd service with auto-restart.
 5. Produces/validates new blocks in real-time
 
 **If all bootnodes go offline:**
-- Nodes that already synced → keep running, reconnect to saved peers ✅
-- Brand new nodes → can't join until at least 1 bootnode is back
+
+- Nodes that already synced continue running and reconnect via saved peers.
+- New nodes cannot join until at least one bootnode is reachable again.
 
 ---
 
@@ -174,6 +218,5 @@ journalctl -u tks-node -f
 
 ---
 
-*TokenKickstarter — Build DApps, Tokens & Apps on TKS*  
-*Docs: https://docs.tokenkickstarter.com*  
-*Explorer: https://tksscan.com*
+Documentation: https://docs.tokenkickstarter.com  
+Explorer: https://tksscan.com

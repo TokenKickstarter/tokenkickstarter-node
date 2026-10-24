@@ -1,6 +1,6 @@
 # TKS Node — Wiki Home
 
-**TokenKickstarter (TKS)** is a Layer-1 blockchain built on [Substrate](https://substrate.io) with full Ethereum Virtual Machine compatibility, 1-second block finality, on-chain DHT anchoring, adaptive gas, and native NFTs.
+**TokenKickstarter (TKS)** is a Layer-1 blockchain built on [Substrate](https://substrate.io) with full Ethereum Virtual Machine compatibility, 1-second block finality, optional embedded Cipher relay and shard services, HyperSwarm libp2p mesh, on-chain DHT anchoring, adaptive gas, and native NFTs.
 
 ---
 
@@ -21,6 +21,16 @@
 | [Build & Release](Build-and-Release) | CI/CD pipeline and release process |
 | [Contributing](Contributing) | Development workflow and standards |
 | [Security](Security) | Responsible disclosure policy |
+
+### Cipher and network specs (repository `network/`)
+
+| Document | Topic |
+|----------|--------|
+| [HYBRID-THROUGHPUT.md](../../network/HYBRID-THROUGHPUT.md) | Hybrid 1k–500k Cipher throughput |
+| [HYPERSWARM-PEERS.md](../../network/HYPERSWARM-PEERS.md) | Multi-relay discovery |
+| [HYPERSWARM-SECURITY.md](../../network/HYPERSWARM-SECURITY.md) | Ciphertext privacy |
+| [CIPHER-CLIENT-CHUNKING-SPEC.md](../../network/CIPHER-CLIENT-CHUNKING-SPEC.md) | Media chunking |
+| [NAME-REGISTRY-THROUGHPUT.md](../../network/NAME-REGISTRY-THROUGHPUT.md) | Username batch registration |
 
 ---
 
@@ -45,7 +55,8 @@
 - **Full EVM Compatibility** — Deploy any Solidity contract without modification
 - **1-Second Finality** — Aura block production + GRANDPA deterministic finality
 - **Adaptive Gas** — Block gas limits scale automatically from 1,500 to 80,000 tx/block
-- **HyperSwarm Anchor** — Decentralized DHT key anchoring at Layer-1 finality
+- **HyperSwarm Anchor** — On-chain DHT key anchoring at Layer-1 finality
+- **Cipher relay and shards** — Encrypted message plane with optional libp2p mesh (ports 4001–4010)
 - **Free Name Registry** — Human-readable on-chain names with no deposit
 - **Native NFTs** — Substrate-layer NFT collections independent of EVM
 - **NPoS Staking** — Full nominated proof-of-stake validator election
@@ -82,8 +93,10 @@ tokenkickstarter-node/
 │   ├── pallet-hyperswarm-anchor/
 │   ├── pallet-name-registry/
 │   └── pallet-shard-registry/
-├── network/        Operator scripts, chain specs, systemd units
-└── cipher-relay/   Encrypted relay helper library
+├── network/        Operator scripts, chain specs, Cipher specs
+├── cipher-relay/   Embedded relay and HyperSwarm mesh
+├── cipher-hybrid/  Adaptive throughput controller
+└── cipher-shard-executor/  Standalone shard binary
 ```
 
 ---

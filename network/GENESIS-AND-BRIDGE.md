@@ -239,7 +239,7 @@ Step 4: Enter amount (min 100 TKS)
 Step 5: Approve + Lock (2 MetaMask transactions)
 Step 6: Wait ~10 minutes for validator confirmation
 Step 7: Switch MetaMask to TKS Network (Chain ID 7779)
-Step 8: Native TKS appears in same wallet address ✅
+Step 8: Native TKS appears in the same wallet address
 ```
 
 **No new wallet needed.** Same `0x...` address works on ETH, BSC, and TKS.
@@ -272,7 +272,7 @@ vec![
     // Community airdrop wallet
     (hex_to_account("0xAIRDROP_WALLET"),          100_000_000 * TKS),
 ]
-// Total: 1,000,000,000 TKS ✅
+// Total: 1,000,000,000 TKS
 ```
 
 ---

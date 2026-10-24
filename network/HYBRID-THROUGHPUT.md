@@ -1,4 +1,4 @@
-# Hybrid adaptive throughput (1k ↔ 500k)
+# Hybrid adaptive throughput (1k to 500k)
 
 Two coupled controllers:
 

@@ -1,4 +1,4 @@
-# Cipher load test harness (planned)
+# Cipher load test harness
 
 Implements the benchmark contract in [`network/CIPHER-TKS-THROUGHPUT-SPEC.md`](../../network/CIPHER-TKS-THROUGHPUT-SPEC.md) §8.
 

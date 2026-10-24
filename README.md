@@ -5,7 +5,7 @@
 [![Chain ID](https://img.shields.io/badge/Chain%20ID-7779-green)](https://chainlist.org)
 [![Build](https://github.com/TokenKickstarter/tokenkickstarter-node/actions/workflows/release.yml/badge.svg)](https://github.com/TokenKickstarter/tokenkickstarter-node/actions/workflows/release.yml)
 
-Layer-1 Substrate blockchain with full EVM compatibility, HyperSwarm DHT anchoring, adaptive gas limits, native NFTs, and 1-second block finality.
+Layer-1 Substrate blockchain with full EVM compatibility, embedded Cipher relay and shard services, HyperSwarm libp2p mesh, adaptive gas limits, native NFTs, and 1-second block finality.
 
 ---
 
@@ -51,6 +51,20 @@ Aura-based block production with 1,000ms slot duration combined with GRANDPA det
 
 Standard Ethereum JSON-RPC API. Deploy any Solidity contract, use MetaMask, connect Hardhat or Foundry — no modifications required. Ethereum signatures and `secp256k1` keys are used natively at the account layer.
 
+### Cipher messaging (embedded data plane)
+
+The node binary can run an HTTP Cipher relay, shard executor, and HyperSwarm libp2p mesh alongside Substrate and Frontier. Message delivery throughput is governed by `cipher-hybrid` (approximately 1k to 500k aggregate messages per second under load). Layer-1 EVM TPS and Cipher aggregate messaging are separate metrics.
+
+| Service | Default port | Role |
+|---------|--------------|------|
+| JSON-RPC / WebSocket | 9944 | Chain state, EVM, `tks_listSwarmValidators` |
+| Substrate P2P | 30333 | Block sync |
+| Cipher relay | 4002 | `POST /store`, `GET /fetch`, `/discovery` |
+| Cipher shard executor | 4010 | Ingest, DA, L1 anchor batches |
+| HyperSwarm libp2p | 4001 | Gossip and ciphertext chunk pull |
+
+See the [network documentation](#network-and-cipher-documentation) section for operator guides and specifications.
+
 ---
 
 ## Architecture
@@ -66,6 +80,9 @@ tokenkickstarter-node/
 │   └── src/
 │       ├── lib.rs                 construct_runtime! and pallet configs
 │       └── precompiles.rs         EVM precompile registration
+├── cipher-relay/                  Embedded relay + HyperSwarm mesh
+├── cipher-hybrid/                 Adaptive Cipher throughput controller
+├── cipher-shard-executor/         Standalone shard binary (optional)
 └── pallets/                       Custom pallets
     ├── pallet-adaptive-gas/       Dynamic block gas limit
     ├── pallet-hyperswarm-anchor/  HyperSwarm DHT key anchoring
@@ -178,6 +195,57 @@ This starts a development node with pre-funded accounts, produces blocks immedia
 ```
 
 See `network/start-validator.sh` and `network/inject-validator-keys.sh` for the full validator setup process including key injection.
+
+### Production full node (Cipher + HyperSwarm)
+
+Use your production chainspec and bootnodes. Example flags match `network/docker-compose-live.yml`:
+
+```bash
+./tks-chain-node \
+  --chain /path/to/chainspec-raw.json \
+  --base-path /data \
+  --name TKS-Fullnode \
+  --rpc-port 9944 \
+  --rpc-external \
+  --rpc-cors all \
+  --rpc-methods Safe \
+  --ws-external \
+  --port 30333 \
+  --enable-cipher-relay \
+  --cipher-relay-port=4002 \
+  --enable-cipher-shard-executor \
+  --cipher-shard-port=4010 \
+  --cipher-shard-id=0 \
+  --enable-cipher-hyperswarm \
+  --cipher-hyperswarm-port=4001 \
+  --cipher-public-relay-url=https://relay.example.com \
+  --bootnodes /bootnodes.txt
+```
+
+Docker Compose: `docker compose -f network/docker-compose-live.yml up -d`
+
+### Upgrade an existing deployment
+
+Download the release binary for your platform from [Releases](https://github.com/TokenKickstarter/tokenkickstarter-node/releases) (current line: **v0.1.8**), replace the running binary or rebuild the image, then restart the service or containers. On-chain runtime features (for example name batch registration, spec 408+) require a separate WASM `set_code` upgrade.
+
+---
+
+## Network and Cipher documentation
+
+| Document | Description |
+|----------|-------------|
+| [network/README.md](network/README.md) | Node operator guide, seeds, validators |
+| [network/DNS-SETUP.md](network/DNS-SETUP.md) | Multi-region DNS bootnodes |
+| [network/docker-compose-live.yml](network/docker-compose-live.yml) | Full node + validators (production layout) |
+| [network/HYBRID-THROUGHPUT.md](network/HYBRID-THROUGHPUT.md) | Cipher hybrid 1k–500k controller |
+| [network/HYPERSWARM-PEERS.md](network/HYPERSWARM-PEERS.md) | Multi-relay discovery and mesh |
+| [network/HYPERSWARM-SECURITY.md](network/HYPERSWARM-SECURITY.md) | Ciphertext privacy model |
+| [network/CIPHER-CLIENT-CHUNKING-SPEC.md](network/CIPHER-CLIENT-CHUNKING-SPEC.md) | Client media chunking (512 KiB) |
+| [network/CIPHER-TKS-THROUGHPUT-SPEC.md](network/CIPHER-TKS-THROUGHPUT-SPEC.md) | Throughput targets and benchmarks |
+| [network/NAME-REGISTRY-THROUGHPUT.md](network/NAME-REGISTRY-THROUGHPUT.md) | `@username` batch registration |
+| [tools/cipher-loadtest/README.md](tools/cipher-loadtest/README.md) | Load test harness |
+
+Wiki pages under `.github/wiki/` cover EVM, RPC, validators, and release CI in more detail.
 
 ---
 

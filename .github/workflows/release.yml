@@ -234,7 +234,7 @@ jobs:
           ./target/release/tks-chain-node \
             build-spec --chain=release-files/tks-testnet-spec.json --raw \
             > release-files/tks-testnet-spec-raw.json
-          echo "✅ Chainspec generated"
+          echo "Chainspec generated"
 
       - name: Generate SHA256 checksums
         run: |
@@ -247,10 +247,10 @@ jobs:
         with:
           name: TKS Node ${{ github.ref_name || github.event.inputs.version }}
           body: |
-            ## 🚀 TKS Node ${{ github.ref_name || github.event.inputs.version }}
+            ## TKS Node ${{ github.ref_name || github.event.inputs.version }}
 
-            > Layer-1 Substrate blockchain with EVM compatibility, HyperSwarm DHT anchoring,
-            > adaptive gas, native NFTs, and free name registry on 1-second blocks.
+            Layer-1 Substrate blockchain with EVM compatibility, embedded Cipher relay and shard services,
+            HyperSwarm libp2p mesh, adaptive gas, native NFTs, and free name registry on 1-second blocks.
 
             ---
 
@@ -258,21 +258,21 @@ jobs:
 
             | Platform | Architecture | File |
             |----------|-------------|------|
-            | 🍎 macOS | Apple Silicon (M1/M2/M3/M4) | `tks-chain-node-*-macos-arm64` |
-            | 🍎 macOS | Intel (x86_64) | `tks-chain-node-*-macos-amd64` |
-            | 🐧 Linux | x86_64 (servers, VPS) | `tks-chain-node-*-linux-amd64` |
-            | 🐧 Linux | ARM64 (Raspberry Pi, VPS) | `tks-chain-node-*-linux-arm64` |
-            | 🪟 Windows | x86_64 | `tks-chain-node-*-windows-amd64.exe` |
+            | macOS | Apple Silicon (M1/M2/M3/M4) | `tks-chain-node-*-macos-arm64` |
+            | macOS | Intel (x86_64) | `tks-chain-node-*-macos-amd64` |
+            | Linux | x86_64 (servers, VPS) | `tks-chain-node-*-linux-amd64` |
+            | Linux | ARM64 (Raspberry Pi, VPS) | `tks-chain-node-*-linux-arm64` |
+            | Windows | x86_64 | `tks-chain-node-*-windows-amd64.exe` |
 
             ---
 
-            ### ⚡ Quick Install (Linux/macOS)
+            ### Quick install (Linux/macOS)
 
             ```bash
             curl -sSf https://raw.githubusercontent.com/TokenKickstarter/tokenkickstarter-node/${{ github.ref_name }}/network/install.sh | bash
             ```
 
-            ### 🔌 Join the TKS Network
+            ### Join the TKS network
 
             ```bash
             ./tks-chain-node \
@@ -282,7 +282,7 @@ jobs:
               --name "MyNode"
             ```
 
-            ### ⛏️ Run as Validator
+            ### Run as validator
 
             ```bash
             # See network/start-validator.sh for full setup

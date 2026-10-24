@@ -89,6 +89,41 @@ See `network/start-bootnode.sh` for a ready-to-use script.
 
 ---
 
+## Production full node with Cipher and HyperSwarm
+
+Public RPC hosts often enable the embedded Cipher relay, shard executor, and libp2p mesh. See `network/docker-compose-live.yml` for the reference layout.
+
+```bash
+./target/release/tks-chain-node \
+  --chain /path/to/chainspec-raw.json \
+  --base-path /data \
+  --rpc-port 9944 \
+  --rpc-external \
+  --rpc-cors all \
+  --ws-external \
+  --port 30333 \
+  --enable-cipher-relay \
+  --cipher-relay-port=4002 \
+  --enable-cipher-shard-executor \
+  --cipher-shard-port=4010 \
+  --cipher-shard-id=0 \
+  --enable-cipher-hyperswarm \
+  --cipher-hyperswarm-port=4001 \
+  --cipher-public-relay-url=https://relay.example.com \
+  --bootnodes /bootnodes.txt
+```
+
+Health checks:
+
+```bash
+curl -s http://127.0.0.1:4002/stats
+curl -s -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"tks_listSwarmValidators","params":[],"id":1}' \
+  http://127.0.0.1:9944
+```
+
+---
+
 ## Running as a systemd Service (Linux)
 
 The `network/` directory includes pre-configured systemd unit files.

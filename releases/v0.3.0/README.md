@@ -20,8 +20,8 @@
          │(syncing)│    │(syncing) │    │(syncing) │
          └─────────┘    └──────────┘    └──────────┘
 
-  All nodes share the SAME genesis → SAME chain ✅
-  Server IP changes → Update DNS only. Zero downtime. ✅
+  All nodes share the same genesis and the same chain.
+  Server IP changes: update DNS only; no binary change required.
 ```
 
 ---
@@ -150,7 +150,7 @@ Manages node as a systemd service with auto-restart.
 5. Produces/validates new blocks in real-time
 
 **If all bootnodes go offline:**
-- Nodes that already synced → keep running, reconnect to saved peers ✅
+- Nodes that already synced continue running and reconnect via saved peers.
 - Brand new nodes → can't join until at least 1 bootnode is back
 
 ---
