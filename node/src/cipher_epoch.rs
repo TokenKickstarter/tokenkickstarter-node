@@ -5,8 +5,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use codec::Decode;
 use futures::FutureExt;
-use sc_client_api::SpawnNamed;
+use sp_core::traits::SpawnNamed;
 use sc_client_api::StorageProvider;
+use sp_blockchain::HeaderBackend;
 use sp_core::twox_128;
 use sp_storage::StorageKey;
 

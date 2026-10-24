@@ -14,6 +14,7 @@ use sc_service::{error::Error as ServiceError, Configuration, TaskManager, WarpS
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
+use sp_core::Pair;
 use sp_runtime::traits::Block as BlockT;
 
 // Frontier imports
@@ -45,7 +46,9 @@ type FullGrandpaBlockImport = sc_consensus_grandpa::GrandpaBlockImport<
     FullClient,
     FullSelectChain,
 >;
-type TransactionPool = sc_transaction_pool::TransactionPoolHandle<tks_runtime::Block, FullClient>;
+pub type FullTransactionPool =
+    sc_transaction_pool::TransactionPoolHandle<tks_runtime::Block, FullClient>;
+type TransactionPool = FullTransactionPool;
 
 /// Frontier KV backend type (2 generic args for this version).
 pub type FrontierBackend = fc_db::kv::Backend<tks_runtime::Block, FullClient>;
@@ -509,7 +512,9 @@ pub fn new_full(
                 prometheus_registry,
                 shared_voter_state: SharedVoterState::empty(),
                 telemetry: telemetry.as_ref().map(|x| x.handle()),
-                offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool),
+                offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(
+                    transaction_pool.clone(),
+                ),
             },
         )?;
 
@@ -538,13 +543,14 @@ pub fn new_full(
     };
 
     if cipher.enable_shard_executor {
+        let anchors_dir_for_executor = anchors_dir.clone();
         let exec_cfg = cipher_shard_executor::EmbeddedExecutorConfig {
             shard_id: cipher.shard_id,
             epoch: shard_epoch.clone(),
             port: cipher.shard_port,
             anchor_interval_secs: cipher.anchor_interval_secs,
             da_dir,
-            anchors_dir,
+            anchors_dir: anchors_dir_for_executor,
             hybrid: hybrid.clone(),
         };
         task_manager.spawn_essential_handle().spawn(
@@ -561,22 +567,15 @@ pub fn new_full(
             if let Some(path) = cipher.anchor_seed_file.clone() {
                 match std::fs::read_to_string(&path) {
                     Ok(seed) => {
-                        match sp_core::ecdsa::Pair::from_string(seed.trim(), None) {
-                            Ok(pair) => {
-                                crate::cipher_anchor::spawn_anchor_submitter(
-                                    spawn.clone(),
-                                    client.clone(),
-                                    transaction_pool.clone(),
-                                    anchors_dir.clone(),
-                                    pair,
-                                );
-                            }
-                            Err(e) => {
-                                log::error!(
-                                    "Invalid --cipher-anchor-seed-file (cannot parse ecdsa pair): {e}"
-                                );
-                            }
-                        }
+                        let pair =
+                            sp_core::ecdsa::Pair::from_legacy_string(seed.trim(), None);
+                        crate::cipher_anchor::spawn_anchor_submitter(
+                            spawn.clone(),
+                            client.clone(),
+                            transaction_pool.clone(),
+                            anchors_dir.clone(),
+                            pair,
+                        );
                     }
                     Err(e) => {
                         log::error!("Cannot read --cipher-anchor-seed-file {}: {e}", path.display());

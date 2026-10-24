@@ -9,9 +9,11 @@ use fp_account::AccountId20;
 use frame_system_rpc_runtime_api::AccountNonceApi;
 use futures::FutureExt;
 use pallet_hyperswarm_anchor::Call as HyperSwarmAnchorCall;
-use sc_client_api::SpawnNamed;
+use sc_client_api::BlockBackend;
 use sc_transaction_pool_api::{TransactionPool, TransactionSource};
-use sp_api::{CallApiAt, ProvideRuntimeApi};
+use sp_blockchain::HeaderBackend;
+use sp_api::ProvideRuntimeApi;
+use sp_core::traits::SpawnNamed;
 use sp_core::{ecdsa, Pair};
 use sp_runtime::{
     generic::{Era, SignedPayload},
@@ -19,7 +21,7 @@ use sp_runtime::{
 };
 use tks_runtime::{RuntimeCall, Signature, SignedExtra, UncheckedExtrinsic};
 
-use crate::service::{FullClient, TransactionPool as Pool};
+use crate::service::{FullClient, FullTransactionPool as Pool};
 
 type Block = tks_runtime::Block;
 
@@ -84,8 +86,12 @@ async fn process_anchor_dir(
         }
 
         let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let payload: AnchorSubmitPayload =
-            serde_json::from_str(&raw).map_err(|e| format!("parse {}: {e}", path.display()))?;
+        let payload: AnchorSubmitPayload = match serde_json::from_str(&raw) {
+            Ok(p) => p,
+            Err(e) => {
+                return Err(format!("parse {}: {e}", path.display()));
+            }
+        };
 
         let dag_root = parse_hash_hex(&payload.dag_root_hash)?;
         match submit_post_anchor(
@@ -166,17 +172,13 @@ async fn submit_post_anchor(
     let raw_payload = SignedPayload::new(call.clone(), extra.clone())
         .map_err(|e| format!("payload: {e:?}"))?;
 
-    let ecdsa_sig = raw_payload
-        .using_encoded(|payload| signer.sign(payload))
-        .map_err(|e| format!("sign: {e}"))?;
+    let ecdsa_sig = raw_payload.using_encoded(|payload| signer.sign(payload));
     let signature = Signature::new(ecdsa_sig);
 
     let ext = UncheckedExtrinsic::new_signed(call, account, signature, extra);
 
-    let opaque =
-        sp_runtime::OpaqueExtrinsic::from_bytes(&ext.encode()).map_err(|e| e.to_string())?;
     let hash = pool
-        .submit_one(at, TransactionSource::Local, opaque)
+        .submit_one(at, TransactionSource::Local, ext)
         .await
         .map_err(|e| e.to_string())?;
     Ok(hash)
