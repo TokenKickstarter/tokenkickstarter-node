@@ -16,7 +16,7 @@ path = "src/main.rs"
 # libp2p for peer-to-peer networking
 libp2p = { version = "0.54", features = [
   "tokio", "noise", "yamux", "tcp", "websocket", "dns",
-  "request-response", "kad", "gossipsub", "identify", "ping",
+  "request-response", "kad", "gossipsub", "identify", "ping", "json",
   "relay", "macros", "serde"
 ] }
 

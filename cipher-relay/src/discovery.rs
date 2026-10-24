@@ -5,7 +5,7 @@ use std::sync::Arc;
 use cipher_hybrid::HybridController;
 use serde::{Deserialize, Serialize};
 
-use crate::swarm::SwarmDirectory;
+use crate::hyperswarm::SwarmDirectory;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RelayEndpoint {

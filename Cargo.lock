@@ -5038,6 +5038,8 @@ dependencies = [
  "libp2p-identity",
  "libp2p-swarm",
  "rand 0.8.6",
+ "serde",
+ "serde_json",
  "smallvec",
  "tracing",
  "void",

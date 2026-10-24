@@ -25,7 +25,7 @@ use http_body_util::{Full, BodyExt};
 use bytes::Bytes;
 
 pub mod discovery;
-pub mod swarm;
+pub mod hyperswarm;
 
 // ─────────────────────────────────────────────────────────
 // Protocol Types (shared with client-core)
@@ -63,7 +63,7 @@ pub enum RelayResponse {
 // Storage Backend (in-memory with TTL)
 // ─────────────────────────────────────────────────────────
 
-struct ChunkStore {
+pub(crate) struct ChunkStore {
     chunks: HashMap<String, Vec<EncryptedChunk>>,
     registered_peers: HashMap<String, u64>, // evm_address → last_seen timestamp
     notifiers: HashMap<String, Arc<Notify>>,
@@ -141,9 +141,25 @@ impl ChunkStore {
         let total_chunks: usize = self.chunks.values().map(|v| v.len()).sum();
         (total_chunks, self.current_bytes, self.registered_peers.len())
     }
+
+    pub(crate) fn get_chunk(&self, recipient_id: &str, message_id: &str) -> Option<EncryptedChunk> {
+        self.chunks.get(recipient_id).and_then(|list| {
+            list.iter()
+                .find(|c| c.message_id == message_id)
+                .cloned()
+        })
+    }
+
+    /// Idempotent store for HyperSwarm replication (same message_id allowed once).
+    pub(crate) fn store_replicate(&mut self, chunk: EncryptedChunk) -> Result<(), String> {
+        if self.get_chunk(&chunk.recipient_id, &chunk.message_id).is_some() {
+            return Ok(());
+        }
+        self.store(chunk).map(|_| ())
+    }
 }
 
-type SharedStore = Arc<RwLock<ChunkStore>>;
+pub(crate) type SharedStore = Arc<RwLock<ChunkStore>>;
 
 /// HTTP relay server options (embedded in TKS node or standalone).
 #[derive(Clone, Debug)]
@@ -174,7 +190,7 @@ struct RelayHttpContext {
     hybrid: Option<Arc<HybridController>>,
     public_relay_url: Option<String>,
     chain_rpc_url: Option<String>,
-    swarm: Option<Arc<swarm::SwarmDirectory>>,
+    hyperswarm: Option<Arc<hyperswarm::HyperSwarmHandle>>,
 }
 
 async fn handle_request(
@@ -187,7 +203,7 @@ async fn handle_request(
         hybrid,
         public_relay_url,
         chain_rpc_url,
-        swarm,
+        hyperswarm,
     } = ctx;
     // CORS headers for all responses
     let cors_headers = |mut resp: Response<Full<Bytes>>| -> Response<Full<Bytes>> {
@@ -224,8 +240,14 @@ async fn handle_request(
             // Generic bincode endpoint (used by client-core direct.rs)
             match bincode::deserialize::<RelayRequest>(&body_bytes) {
                 Ok(relay_req) => {
-                    handle_relay_request(relay_req, &store, shard_ingest_url.clone(), hybrid.clone())
-                        .await
+                    handle_relay_request(
+                        relay_req,
+                        &store,
+                        shard_ingest_url.clone(),
+                        hybrid.clone(),
+                        hyperswarm.clone(),
+                    )
+                    .await
                 }
                 Err(e) => {
                     let resp = RelayResponse::Error(format!("Decode error: {}", e));
@@ -239,7 +261,14 @@ async fn handle_request(
                 Ok(chunk) => {
                     let req = RelayRequest::Store(chunk.clone());
                     let resp_bytes =
-                        handle_relay_request(req, &store, shard_ingest_url.clone(), hybrid.clone()).await;
+                        handle_relay_request(
+                            req,
+                            &store,
+                            shard_ingest_url.clone(),
+                            hybrid.clone(),
+                            hyperswarm.clone(),
+                        )
+                        .await;
                     if bincode::deserialize::<RelayResponse>(&resp_bytes)
                         .map(|r| matches!(r, RelayResponse::Stored { .. }))
                         .unwrap_or(false)
@@ -248,7 +277,7 @@ async fn handle_request(
                             chunk,
                             public_relay_url.clone(),
                             chain_rpc_url.clone(),
-                            swarm.clone(),
+                            hyperswarm.as_ref().map(|h| h.directory.clone()),
                         );
                     }
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
@@ -265,7 +294,14 @@ async fn handle_request(
                     let recipient_id = val["recipient_id"].as_str().unwrap_or("").to_string();
                     let req = RelayRequest::Fetch { recipient_id };
                     let resp_bytes =
-                        handle_relay_request(req, &store, shard_ingest_url.clone(), hybrid.clone()).await;
+                        handle_relay_request(
+                            req,
+                            &store,
+                            shard_ingest_url.clone(),
+                            hybrid.clone(),
+                            hyperswarm.clone(),
+                        )
+                        .await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -284,7 +320,14 @@ async fn handle_request(
                         .unwrap_or_default();
                     let req = RelayRequest::Ack { recipient_id, message_ids };
                     let resp_bytes =
-                        handle_relay_request(req, &store, shard_ingest_url.clone(), hybrid.clone()).await;
+                        handle_relay_request(
+                            req,
+                            &store,
+                            shard_ingest_url.clone(),
+                            hybrid.clone(),
+                            hyperswarm.clone(),
+                        )
+                        .await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -299,7 +342,14 @@ async fn handle_request(
                     let evm_address = val["evm_address"].as_str().unwrap_or("").to_string();
                     let req = RelayRequest::Register { evm_address };
                     let resp_bytes =
-                        handle_relay_request(req, &store, shard_ingest_url.clone(), hybrid.clone()).await;
+                        handle_relay_request(
+                            req,
+                            &store,
+                            shard_ingest_url.clone(),
+                            hybrid.clone(),
+                            hyperswarm.clone(),
+                        )
+                        .await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -326,12 +376,15 @@ async fn handle_request(
             }
         }
         "/discovery" => {
-            let peer_id = swarm.as_ref().map(|s| s.local_peer_id().to_string());
+            let peer_id = hyperswarm
+                .as_ref()
+                .map(|s| s.directory.local_peer_id().to_string());
+            let swarm_dir = hyperswarm.as_ref().map(|h| h.directory.clone());
             let disc = discovery::build_discovery(
                 public_relay_url.clone(),
                 peer_id,
                 chain_rpc_url.clone(),
-                swarm.clone(),
+                swarm_dir,
                 hybrid.clone(),
             )
             .await;
@@ -359,7 +412,7 @@ fn mesh_replicate(
     chunk: EncryptedChunk,
     self_http: Option<String>,
     chain_rpc_url: Option<String>,
-    swarm: Option<Arc<swarm::SwarmDirectory>>,
+    swarm: Option<Arc<hyperswarm::SwarmDirectory>>,
 ) {
     tokio::spawn(async move {
         let peer_id = swarm.as_ref().map(|s| s.local_peer_id().to_string());
@@ -413,6 +466,7 @@ async fn handle_relay_request(
     store: &SharedStore,
     shard_ingest_url: Option<String>,
     hybrid: Option<Arc<HybridController>>,
+    hyperswarm: Option<Arc<hyperswarm::HyperSwarmHandle>>,
 ) -> Vec<u8> {
     let response = match req {
         RelayRequest::Store(chunk) => {
@@ -434,12 +488,26 @@ async fn handle_relay_request(
                             forward_shard_ingest(&url, &c, &mid).await;
                         });
                     }
+                    drop(s);
+                    if let Some(ref hs) = hyperswarm {
+                        let ann = hyperswarm::chunk_avail_from(
+                            &chunk,
+                            &hs.directory.local_peer_id().to_string(),
+                        );
+                        hs.announce_chunk(ann);
+                    }
                     RelayResponse::Stored { message_id: msg_id }
                 }
                 Err(e) => RelayResponse::Error(e),
             }
         }
         RelayRequest::Fetch { recipient_id } => {
+            if let Some(ref hs) = hyperswarm {
+                let pulled = hs.pull_for_recipient(&recipient_id).await;
+                if pulled > 0 {
+                    info!("🕸️ HyperSwarm pulled {pulled} chunk(s) for {recipient_id}");
+                }
+            }
             let notifier = {
                 let mut s = store.write().await;
                 let chunks = s.fetch(&recipient_id);
@@ -447,14 +515,16 @@ async fn handle_relay_request(
                     info!("📬 Fetch (Instant): {} chunks for {}", chunks.len(), recipient_id);
                     return bincode::serialize(&RelayResponse::Chunks(chunks)).unwrap_or_default();
                 }
-                // Register a wakeup channel
                 s.notifiers.entry(recipient_id.clone())
                     .or_insert_with(|| Arc::new(tokio::sync::Notify::new()))
                     .clone()
             };
 
-            // Hold the connection open for up to 25 seconds for <100ms instant delivery
             let _ = tokio::time::timeout(std::time::Duration::from_secs(25), notifier.notified()).await;
+
+            if let Some(ref hs) = hyperswarm {
+                let _ = hs.pull_for_recipient(&recipient_id).await;
+            }
 
             let s = store.read().await;
             let chunks = s.fetch(&recipient_id);
@@ -531,21 +601,29 @@ pub async fn run_relay_server_with(
     let public_relay_url = config.public_relay_url.clone();
     let chain_rpc_url = config.chain_rpc_url.clone();
 
-    let swarm = if config.enable_hyperswarm {
+    info!("🚀 Cipher Storage Swarm Relay v0.1.5 (HyperSwarm chunk pull)");
+    info!("📋 Blueprint §3.5: Encrypted chunk storage with TTL auto-delete");
+
+    let store: SharedStore = Arc::new(RwLock::new(ChunkStore::new(100 * 1024 * 1024 * 1024)));
+
+    let hyperswarm = if config.enable_hyperswarm {
         let bootnodes: Result<Vec<_>, _> = config
             .hyperswarm_bootnodes
             .iter()
             .map(|s| s.parse())
             .collect();
-        match swarm::run_hyperswarm_swarm(swarm::SwarmConfig {
-            listen_port: config.hyperswarm_port,
-            public_http_base: public_relay_url.clone(),
-            region: config.hyperswarm_region.clone(),
-            bootnodes: bootnodes.unwrap_or_default(),
-        })
+        match hyperswarm::run_hyperswarm(
+            store.clone(),
+            hyperswarm::HyperSwarmConfig {
+                listen_port: config.hyperswarm_port,
+                public_http_base: public_relay_url.clone(),
+                region: config.hyperswarm_region.clone(),
+                bootnodes: bootnodes.unwrap_or_default(),
+            },
+        )
         .await
         {
-            Ok(d) => Some(d),
+            Ok(h) => Some(Arc::new(h)),
             Err(e) => {
                 warn!("HyperSwarm libp2p failed to start: {e}");
                 None
@@ -554,12 +632,6 @@ pub async fn run_relay_server_with(
     } else {
         None
     };
-
-    info!("🚀 Cipher Storage Swarm Relay v0.1.3 (HyperSwarm)");
-    info!("📋 Blueprint §3.5: Encrypted chunk storage with TTL auto-delete");
-
-    // Storage backend (100 GB max)
-    let store: SharedStore = Arc::new(RwLock::new(ChunkStore::new(100 * 1024 * 1024 * 1024)));
 
     // Cleanup timer — every 5 minutes
     let store_cleanup = store.clone();
@@ -584,9 +656,9 @@ pub async fn run_relay_server_with(
     if hybrid.is_some() {
         info!("   Hybrid throughput: enabled (GET /hybrid/stats)");
     }
-    if swarm.is_some() {
+    if hyperswarm.is_some() {
         info!(
-            "   HyperSwarm libp2p on port {} (GET /discovery)",
+            "   HyperSwarm libp2p on port {} (GET /discovery, chunk pull)",
             config.hyperswarm_port
         );
     }
@@ -599,7 +671,7 @@ pub async fn run_relay_server_with(
             hybrid: hybrid.clone(),
             public_relay_url: public_relay_url.clone(),
             chain_rpc_url: chain_rpc_url.clone(),
-            swarm: swarm.clone(),
+            hyperswarm: hyperswarm.clone(),
         };
         debug!("Connection from {}", remote_addr);
 
@@ -612,7 +684,7 @@ pub async fn run_relay_server_with(
                     hybrid: ctx.hybrid.clone(),
                     public_relay_url: ctx.public_relay_url.clone(),
                     chain_rpc_url: ctx.chain_rpc_url.clone(),
-                    swarm: ctx.swarm.clone(),
+                    hyperswarm: ctx.hyperswarm.clone(),
                 };
                 async move { handle_request(req, ctx).await }
             });

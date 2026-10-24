@@ -41,11 +41,15 @@ ShardRegistry.register_validator(region, endpoint)
 - `tks_listSwarmValidators` — active registrations from chain
 - `tks_hyperswarmNetworkInfo` — shard count + epoch
 
-## Mesh behavior (v0.1.4+)
+## Mesh behavior (v0.1.5+)
 
-- Each relay gossips presence every 30s on topic `tks-hyperswarm-relay-v1`
-- On `/store`, best-effort replicate to up to 8 other relays from `/discovery`
-- Primary VPS down → clients use next relay from discovery; messages may exist on community nodes
+- Relay presence gossip: `tks-hyperswarm-relay-v1`
+- **Chunk torrent pull:** `tks-hyperswarm-chunk-v1` + libp2p `/tks-hyperswarm/chunk/1.0.0`
+- On `/store`: gossip chunk **availability** (hash + ids only); peers **pull ciphertext** on demand
+- On `/fetch`: local store + **HyperSwarm pull** from peers before empty response
+- HTTP fanout to up to 8 relays from `/discovery` (push backup)
+
+See [HYPERSWARM-SECURITY.md](./HYPERSWARM-SECURITY.md) — peers **cannot decrypt** ciphertext.
 
 ## nginx
 
