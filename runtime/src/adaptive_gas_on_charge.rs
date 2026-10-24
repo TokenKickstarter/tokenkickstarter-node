@@ -23,7 +23,9 @@ where
     type LiquidityInfo = Option<Credit<AccountIdOf<T>, T::Currency>>;
 
     fn withdraw_fee(who: &H160, fee: U256) -> Result<Self::LiquidityInfo, Error<T>> {
-        EVMFungibleAdapter::<T::Currency, ()>::withdraw_fee(who, fee)
+        <EVMFungibleAdapter<T::Currency, ()> as OnChargeEVMTransaction<T>>::withdraw_fee(
+            who, fee,
+        )
     }
 
     fn correct_and_deposit_fee(
@@ -36,7 +38,7 @@ where
         if effective_gas > 0 {
             pallet_adaptive_gas::Pallet::<T>::record_gas_used(effective_gas);
         }
-        EVMFungibleAdapter::<T::Currency, ()>::correct_and_deposit_fee(
+        <EVMFungibleAdapter<T::Currency, ()> as OnChargeEVMTransaction<T>>::correct_and_deposit_fee(
             who,
             corrected_fee,
             base_fee,
@@ -45,7 +47,7 @@ where
     }
 
     fn pay_priority_fee(tip: Self::LiquidityInfo) {
-        EVMFungibleAdapter::<T::Currency, ()>::pay_priority_fee(tip);
+        <EVMFungibleAdapter<T::Currency, ()> as OnChargeEVMTransaction<T>>::pay_priority_fee(tip);
     }
 }
 
