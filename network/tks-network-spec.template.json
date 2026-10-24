@@ -1,0 +1,53 @@
+{
+  "name": "TKS Network",
+  "id": "tks_network",
+  "chainType": "Live",
+  "bootNodes": [],
+  "telemetryEndpoints": null,
+  "protocolId": "tks-network",
+  "properties": {
+    "tokenSymbol": "TKS",
+    "tokenDecimals": 18,
+    "ss58Format": 42
+  },
+  "genesis": {
+    "runtimeGenesis": {
+      "config": {
+        "system": {},
+        "balances": {
+          "balances": []
+        },
+        "session": {
+          "keys": []
+        },
+        "staking": {
+          "validatorCount": 2,
+          "minimumValidatorCount": 1,
+          "stakers": [],
+          "invulnerables": [],
+          "forceEra": "NotForcing",
+          "minValidatorBond": 100000000000000000000000,
+          "minNominatorBond": 1000000000000000000000
+        },
+        "sudo": {
+          "key": null
+        },
+        "shardRegistry": {
+          "initial_shard_count": 8,
+          "validators_per_shard": 7,
+          "validators": [],
+          "require_staked_validators": true
+        },
+        "evmChainId": {
+          "chainId": 7779
+        },
+        "baseFee": {
+          "baseFeePerGas": "0x3B9ACA00"
+        },
+        "evm": {
+          "accounts": {}
+        }
+      }
+    }
+  }
+}

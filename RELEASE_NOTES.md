@@ -6,18 +6,43 @@ Security-related entries: [SECURITY-CHANGELOG.md](SECURITY-CHANGELOG.md).
 
 ---
 
-## Unreleased (post audit v0.1.8)
+## v0.1.9
+
+Audit remediation release (code + operator tooling). **Runtime spec 410** — existing chains need `set_code` before pallet fixes apply.
 
 ### Fixes
 
 - Hybrid `lifetime_ingress` no longer double-counts when relay forwards to shard ingest on the same node.
 - Hybrid snapshot includes `metrics_note` (configured ceilings vs measured TPS).
+- `pallet-adaptive-gas`: block gas accumulator capped at `CurrentGasLimit` (no overshoot in metrics).
+- `pallet-shard-registry`: optional `require_staked_validators` genesis flag; `register_validator` checks staking ledger when enabled.
+
+### Cipher / L1 anchors
+
+- Node watches `{base-path}/cipher/anchors/` and submits signed `HyperSwarmAnchor::post_anchor` extrinsics (`--cipher-auto-post-anchor`, `--cipher-anchor-seed-file`).
+- Embedded shard executor follows on-chain `ShardRegistry::CurrentEpoch` (5s poll).
+- Docker live compose: anchor seed mount and auto-post flags documented in [network/docker-compose-live.yml](network/docker-compose-live.yml).
+
+### Production chainspec
+
+- `--chain tks-network` loads [network/tks-network-spec.json](network/tks-network-spec.json) (Live / `TKS Network` template).
+- Scripts: [network/scripts/bootstrap-production-genesis.sh](network/scripts/bootstrap-production-genesis.sh), [network/scripts/build-tks-network-spec.sh](network/scripts/build-tks-network-spec.sh).
 
 ### Documentation
 
 - [network/AUDIT-REMEDIATION-v0.1.8.md](network/AUDIT-REMEDIATION-v0.1.8.md)
 - [network/PRODUCTION-DEPLOYMENT-CHECKLIST.md](network/PRODUCTION-DEPLOYMENT-CHECKLIST.md)
 - [network/MAINNET-GENESIS-CHECKLIST.md](network/MAINNET-GENESIS-CHECKLIST.md)
+
+### Upgrade (Linux amd64 example)
+
+```bash
+VERSION=v0.1.9
+curl -L -o tks-chain-node \
+  "https://github.com/TokenKickstarter/tokenkickstarter-node/releases/download/${VERSION}/tks-chain-node-${VERSION}-linux-amd64"
+chmod +x tks-chain-node
+# Restart node; mount cipher anchor seed if using auto-post; run set_code for spec 410.
+```
 
 ---
 

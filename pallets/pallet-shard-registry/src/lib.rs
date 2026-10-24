@@ -39,7 +39,7 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
+    pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> + pallet_staking::Config {
         /// How many blocks per shard rotation epoch.
         /// Default: 6 hours = 3600 blocks at 6s/block.
         #[pallet::constant]
@@ -159,6 +159,10 @@ pub mod pallet {
     #[pallet::getter(fn validators_per_shard)]
     pub type ValidatorsPerShard<T: Config> = StorageValue<_, u32, ValueQuery>;
 
+    /// When true, `register_validator` requires a staking ledger entry.
+    #[pallet::storage]
+    pub type RequireStakedValidators<T: Config> = StorageValue<_, bool, ValueQuery>;
+
     // ─── Events ────────────────────────────────────────────────────────
 
     #[pallet::event]
@@ -215,6 +219,8 @@ pub mod pallet {
         EmptyEndpoint,
         /// Not enough validators to fill all shards.
         InsufficientValidators,
+        /// Caller must be a bonded staker when strict registration is enabled.
+        NotStakedValidator,
     }
 
     // ─── Extrinsics ────────────────────────────────────────────────────
@@ -242,6 +248,12 @@ pub mod pallet {
 
             ensure!(!Validators::<T>::contains_key(&who), Error::<T>::AlreadyRegistered);
             ensure!(!endpoint.is_empty(), Error::<T>::EmptyEndpoint);
+            if RequireStakedValidators::<T>::get() {
+                ensure!(
+                    pallet_staking::Ledger::<T>::contains_key(&who),
+                    Error::<T>::NotStakedValidator
+                );
+            }
 
             let now = frame_system::Pallet::<T>::block_number();
 
@@ -528,6 +540,8 @@ pub mod pallet {
         pub validators_per_shard: u32,
         /// Pre-registered validators: (account, region, endpoint_bytes).
         pub validators: Vec<(T::AccountId, GeoRegion, Vec<u8>)>,
+        /// Require bonded stake for `register_validator` (recommended for production).
+        pub require_staked_validators: bool,
     }
 
     #[pallet::genesis_build]
@@ -538,6 +552,7 @@ pub mod pallet {
 
             let vps = if self.validators_per_shard == 0 { DEFAULT_VALIDATORS_PER_SHARD } else { self.validators_per_shard };
             ValidatorsPerShard::<T>::put(vps);
+            RequireStakedValidators::<T>::put(self.require_staked_validators);
 
             for (account, region, endpoint_bytes) in &self.validators {
                 let endpoint: BoundedVec<u8, T::MaxEndpointLength> = endpoint_bytes
@@ -555,8 +570,12 @@ pub mod pallet {
             }
 
             log::info!(
-                "🚀 HyperSwarm genesis: {} shards, {} validators/shard, {} validators registered",
-                shard_count, vps, self.validators.len()
+                target: "pallet-shard-registry",
+                "HyperSwarm genesis: {} shards, {} validators/shard, {} validators registered, require_staked={}",
+                shard_count,
+                vps,
+                self.validators.len(),
+                self.require_staked_validators,
             );
 
             if TotalValidators::<T>::get() > 0 && shard_count > 0 {

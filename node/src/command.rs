@@ -35,6 +35,7 @@ impl SubstrateCli for Cli {
         Ok(match id {
             "dev" => Box::new(chain_spec::development_config()?),
             "" | "local" => Box::new(chain_spec::local_testnet_config()?),
+            "tks-network" | "network" => Box::new(chain_spec::tks_network_config()?),
             path => Box::new(chain_spec::ChainSpec::from_json_file(
                 std::path::PathBuf::from(path),
             )?),
@@ -208,6 +209,8 @@ pub fn run() -> sc_cli::Result<()> {
                 public_relay_url: cli.cipher_public_relay_url.clone(),
                 hyperswarm_bootnodes: cli.cipher_hyperswarm_bootnodes.clone(),
                 hyperswarm_region: cli.cipher_hyperswarm_region.clone(),
+                auto_post_anchor: cli.cipher_auto_post_anchor,
+                anchor_seed_file: cli.cipher_anchor_seed_file.clone(),
             };
             let runner = cli.create_runner(&cli.run)?;
             runner.run_node_until_exit(|config| async move {

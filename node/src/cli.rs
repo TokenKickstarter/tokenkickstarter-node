@@ -66,6 +66,14 @@ pub struct Cli {
 
     #[arg(long, default_value = "asia")]
     pub cipher_hyperswarm_region: String,
+
+    /// Submit `HyperSwarmAnchor.post_anchor` when anchor JSON appears (requires seed file).
+    #[arg(long, default_value_t = true)]
+    pub cipher_auto_post_anchor: bool,
+
+    /// File containing one line: Substrate/ecdsa secret URI for the shard validator AccountId20.
+    #[arg(long)]
+    pub cipher_anchor_seed_file: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, clap::Subcommand)]

@@ -6527,6 +6527,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
+ "pallet-staking",
  "parity-scale-codec",
  "scale-info",
  "serde",
@@ -10961,7 +10962,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tks-chain-node"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "cipher-hybrid",
  "cipher-relay",
@@ -10980,13 +10981,17 @@ dependencies = [
  "fp-dynamic-fee",
  "fp-evm",
  "fp-rpc",
+ "fp-self-contained",
+ "frame-system",
  "frame-system-rpc-runtime-api",
  "futures",
  "hex",
  "jsonrpsee",
  "log",
  "pallet-ethereum",
+ "pallet-hyperswarm-anchor",
  "pallet-shard-registry",
+ "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "pallet-transaction-payment-rpc-runtime-api",
  "parity-scale-codec",
@@ -11024,6 +11029,7 @@ dependencies = [
  "substrate-frame-rpc-system",
  "substrate-prometheus-endpoint",
  "tks-runtime",
+ "tokio",
 ]
 
 [[package]]

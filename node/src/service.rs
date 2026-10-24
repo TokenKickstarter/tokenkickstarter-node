@@ -208,6 +208,8 @@ pub struct CipherStackConfig {
     pub public_relay_url: Option<String>,
     pub hyperswarm_bootnodes: Vec<String>,
     pub hyperswarm_region: String,
+    pub auto_post_anchor: bool,
+    pub anchor_seed_file: Option<std::path::PathBuf>,
 }
 
 /// Build and start the full TKS node.
@@ -519,6 +521,10 @@ pub fn new_full(
     let da_dir = cipher_base.join("da");
     let anchors_dir = cipher_base.join("anchors");
 
+    let spawn = task_manager.spawn_handle();
+    let shard_epoch = crate::cipher_epoch::new_epoch_handle(cipher.shard_epoch);
+    crate::cipher_epoch::spawn_epoch_sync(spawn.clone(), client.clone(), shard_epoch.clone());
+
     let hybrid = if cipher.hybrid_throughput {
         Some(std::sync::Arc::new(cipher_hybrid::HybridController::new(
             cipher_hybrid::HybridConfig {
@@ -534,7 +540,7 @@ pub fn new_full(
     if cipher.enable_shard_executor {
         let exec_cfg = cipher_shard_executor::EmbeddedExecutorConfig {
             shard_id: cipher.shard_id,
-            epoch: cipher.shard_epoch,
+            epoch: shard_epoch.clone(),
             port: cipher.shard_port,
             anchor_interval_secs: cipher.anchor_interval_secs,
             da_dir,
@@ -550,6 +556,39 @@ pub fn new_full(
                 }
             },
         );
+
+        if cipher.auto_post_anchor {
+            if let Some(path) = cipher.anchor_seed_file.clone() {
+                match std::fs::read_to_string(&path) {
+                    Ok(seed) => {
+                        match sp_core::ecdsa::Pair::from_string(seed.trim(), None) {
+                            Ok(pair) => {
+                                crate::cipher_anchor::spawn_anchor_submitter(
+                                    spawn.clone(),
+                                    client.clone(),
+                                    transaction_pool.clone(),
+                                    anchors_dir.clone(),
+                                    pair,
+                                );
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "Invalid --cipher-anchor-seed-file (cannot parse ecdsa pair): {e}"
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Cannot read --cipher-anchor-seed-file {}: {e}", path.display());
+                    }
+                }
+            } else {
+                log::warn!(
+                    "cipher_auto_post_anchor is enabled but --cipher-anchor-seed-file is not set; \
+                     anchor JSON will not be submitted on-chain"
+                );
+            }
+        }
     }
 
     if cipher.enable_relay {

@@ -247,7 +247,8 @@ pub mod pallet {
         /// Record gas used by a transaction. Called by EVM hook.
         pub fn record_gas_used(gas: u64) {
             LastBlockGasUsed::<T>::mutate(|used| {
-                *used = used.saturating_add(gas);
+                let limit = CurrentGasLimit::<T>::get();
+                *used = used.saturating_add(gas).min(limit);
             });
         }
 

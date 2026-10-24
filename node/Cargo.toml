@@ -1,6 +1,6 @@
 [package]
 name = "tks-chain-node"
-version = "0.1.8"
+version = "0.1.9"
 description = "TKS (TokenKickstarter) Substrate node — the blockchain binary anyone can run"
 authors.workspace = true
 edition.workspace = true
@@ -23,9 +23,12 @@ log = { version = "0.4" }
 hex = { version = "0.4", default-features = false }
 # TKS Local Dependencies
 cipher-relay = { path = "../cipher-relay" }
-cipher-hybrid = { path = "../cipher-hybrid" }
 cipher-shard-executor = { path = "../cipher-shard-executor" }
-
+pallet-hyperswarm-anchor = { path = "../pallets/pallet-hyperswarm-anchor", default-features = false, features = ["std"] }
+fp-self-contained = { workspace = true, features = ["std"] }
+frame-system = { workspace = true, default-features = false, features = ["std"] }
+pallet-transaction-payment = { workspace = true, default-features = false, features = ["std"] }
+cipher-hybrid = { path = "../cipher-hybrid" }
 
 # Substrate Client
 sc-cli = { workspace = true }
@@ -93,3 +96,4 @@ cumulus-primitives-proof-size-hostfunction = { workspace = true }
 tks-runtime = { path = "../runtime" }
 pallet-shard-registry = { path = "../pallets/pallet-shard-registry", default-features = false, features = ["std"] }
 codec = { workspace = true, features = ["std"] }
+tokio = { version = "1", features = ["time"] }

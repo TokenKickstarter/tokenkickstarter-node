@@ -6,6 +6,21 @@
 
 This document maps audit verdicts to owners, repo changes, and re-test criteria.
 
+## v0.1.9 code delivered (2026-10-25)
+
+| Audit item | Repo change |
+|------------|-------------|
+| E — anchors JSON only | `node/src/cipher_anchor.rs`: auto `post_anchor` from `{base-path}/cipher/anchors/`; CLI `--cipher-auto-post-anchor`, `--cipher-anchor-seed-file`; Docker live compose mount |
+| E — epoch mismatch | `node/src/cipher_epoch.rs` + executor `epoch: Arc<AtomicU32>` synced from `ShardRegistry::CurrentEpoch` |
+| E — open registration | `RequireStakedValidators` + `NotStakedValidator` in `pallet-shard-registry` (enable in production genesis) |
+| C — gas overshoot | `pallet-adaptive-gas::record_gas_used` capped at `CurrentGasLimit` |
+| D — hybrid double count | Removed duplicate `record_ingress` on shard ingest (prior commit) |
+| H3 — naming / Live | `tks_network_config()` + template `network/tks-network-spec.template.json`; dev spec labeled `TKS Local Testnet` only |
+| H1 — Alice/Bob | **Not fixed on existing chain** — use `network/scripts/bootstrap-production-genesis.sh` + new genesis |
+| H2 — sudo leak | **Not fixed on existing chain** — multisig migration (checklist) |
+
+**Re-test after VPS deploy:** `tks_listSwarmValidators` non-empty; storage/query shows anchor records increasing; `system_chain` = `TKS Network` on new spec; spec_version ≥ 410.
+
 ## Verdict summary
 
 | ID | Topic | Verdict | Re-test when |
@@ -65,8 +80,8 @@ This document maps audit verdicts to owners, repo changes, and re-test criteria.
 
 **Remediation:**
 
-1. Validator calls `ShardRegistry.register_validator(region, endpoint)`.
-2. Operator or bot reads anchor JSON and submits extrinsic with assigned validator key.
+1. Validator calls `ShardRegistry.register_validator(region, endpoint)` (must be staked when `require_staked_validators` is true).
+2. Enable `--cipher-auto-post-anchor` and `--cipher-anchor-seed-file` (ECDSA account must match registered validator / shard assignment).
 3. Re-audit: `tks_listSwarmValidators` non-empty; on-chain anchor count increases after seal interval.
 
 ### D — Relay throughput honesty

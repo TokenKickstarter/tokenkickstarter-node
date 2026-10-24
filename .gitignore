@@ -27,6 +27,7 @@ network/bootnodes/*.key
 *.nodekey
 network/keystore/
 keystore/
+network/production-keys/
 
 # ── Compiled Node Binaries ──────────────────────────────────────────
 # Binary releases belong in GitHub Releases, not the repo.

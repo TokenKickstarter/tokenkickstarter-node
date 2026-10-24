@@ -149,6 +149,15 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
     .build())
 }
 
+/// Production network spec (Live chain type). Requires `network/tks-network-spec.json`.
+///
+/// Generate that file with `network/scripts/bootstrap-production-genesis.sh` before launch.
+pub fn tks_network_config() -> Result<ChainSpec, String> {
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let path = manifest_dir.join("../network/tks-network-spec.json");
+    ChainSpec::from_json_file(path)
+}
+
 /// Configure initial storage state for genesis.
 fn testnet_genesis(
     initial_authorities: Vec<(AccountId, AuraId, GrandpaId)>,

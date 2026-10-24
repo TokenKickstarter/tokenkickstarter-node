@@ -35,6 +35,10 @@ services:
         source: ./chainspec-raw.json
         target: /chainspec.json
         read_only: true
+      - type: bind
+        source: ./production-keys/cipher-anchor-seed.txt
+        target: /secrets/cipher-anchor-seed.txt
+        read_only: true
     command: >
       --chain /chainspec.json
       --base-path /data
@@ -55,6 +59,8 @@ services:
       --enable-cipher-hyperswarm
       --cipher-hyperswarm-port=4001
       --cipher-public-relay-url=https://relay.tokenkickstarter.com
+      --cipher-auto-post-anchor
+      --cipher-anchor-seed-file=/secrets/cipher-anchor-seed.txt
       --bootnodes /bootnodes.txt
 
   tks-validator1:
