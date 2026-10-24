@@ -131,7 +131,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     /// Nodes with different spec_version CANNOT sync with each other.
     /// A node with lower spec_version will refuse blocks from higher.
     /// Tolerance: ±4 versions (396–404 will still sync with warning).
-    spec_version: 404,
+    spec_version: 405,
     /// Bump when node implementation changes but state transition is same
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
