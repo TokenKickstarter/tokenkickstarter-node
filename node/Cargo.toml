@@ -1,6 +1,6 @@
 [package]
 name = "tks-chain-node"
-version = "0.1.5"
+version = "0.1.6"
 description = "TKS (TokenKickstarter) Substrate node — the blockchain binary anyone can run"
 authors.workspace = true
 edition.workspace = true
