@@ -153,6 +153,10 @@ async fn submit_post_anchor(
     });
 
     let at = client.info().best_hash;
+    let genesis_hash = client
+        .block_hash(0u32.into())
+        .map_err(|e| e.to_string())?
+        .ok_or("genesis hash missing")?;
     let nonce = client
         .runtime_api()
         .account_nonce(at, account)
@@ -169,8 +173,22 @@ async fn submit_post_anchor(
         pallet_transaction_payment::ChargeTransactionPayment::<tks_runtime::Runtime>::from(0),
     );
 
-    let raw_payload = SignedPayload::new(call.clone(), extra.clone())
-        .map_err(|e| format!("payload: {e:?}"))?;
+    // `SignedPayload::new` reads implicit extensions via host functions and must not run
+    // on the async executor; provide explicit implicit data instead.
+    let raw_payload = SignedPayload::from_raw(
+        call.clone(),
+        extra.clone(),
+        (
+            (),
+            tks_runtime::VERSION.spec_version,
+            tks_runtime::VERSION.transaction_version,
+            genesis_hash,
+            genesis_hash,
+            (),
+            (),
+            (),
+        ),
+    );
 
     let ecdsa_sig = raw_payload.using_encoded(|payload| signer.sign(payload));
     let signature = Signature::new(ecdsa_sig);

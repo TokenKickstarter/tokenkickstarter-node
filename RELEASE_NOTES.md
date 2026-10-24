@@ -4,6 +4,23 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.10
+
+### Fixes
+
+- **Cipher auto-anchor:** avoid `SignedPayload::new` on the async executor (fixes node panic when `--cipher-auto-post-anchor` is enabled). Use `SignedPayload::from_raw` with explicit version/genesis data.
+
+### Upgrade (Linux amd64 example)
+
+```bash
+VERSION=v0.1.10
+curl -L -o tks-chain-node \
+  "https://github.com/TokenKickstarter/tokenkickstarter-node/releases/download/${VERSION}/tks-chain-node-${VERSION}-linux-amd64"
+chmod +x tks-chain-node
+```
+
+---
+
 ## v0.1.9
 
 Audit remediation release (code + operator tooling). **Runtime spec 410** — existing chains need `set_code` before pallet fixes apply.
