@@ -23,8 +23,8 @@ HyperSwarm nodes are **dumb caches** of already-encrypted data — like BitTorre
 | Layer | Today |
 |-------|--------|
 | **Relay HTTP / HyperSwarm pull** | One `EncryptedChunk` per client upload (opaque bytes). |
-| **Large media (photos/video)** | App should **split → encrypt each piece → upload many chunks** before send. |
-| **Randomized / padded pieces** | **Client protocol** (recommended); not rewritten by the node. |
+| **Large media (photos/video)** | **512 KiB** encrypt-then-upload; see [CIPHER-CLIENT-CHUNKING-SPEC.md](./CIPHER-CLIENT-CHUNKING-SPEC.md). |
+| **Randomized / padded pieces** | Optional **PAD_BUCKET** on wire blob (client spec §6). |
 | **Shard L1 path** | Stores **hash** of ciphertext for anchors, not full media. |
 
 So: **peers cannot decrypt**; **chunking strategy is defined by Cipher clients** — use many small encrypted chunks for big files so pulls look like torrent pieces.

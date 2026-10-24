@@ -25,6 +25,10 @@ cargo run -p cipher-loadtest -- --relay-url http://127.0.0.1:4002 --messages 500
 
 Writes `cipher_load_results.json` in the current directory.
 
+## Client media chunking
+
+Large files: [CIPHER-CLIENT-CHUNKING-SPEC.md](../../network/CIPHER-CLIENT-CHUNKING-SPEC.md) (512 KiB pieces, `RelayWireChunk`).
+
 ## Hybrid throughput (default)
 
 Adaptive **~1k → 500k** aggregate Cipher TPS via `cipher-hybrid` (see [`network/HYBRID-THROUGHPUT.md`](../../network/HYBRID-THROUGHPUT.md)). Check `GET /hybrid/stats` on relay `:4002` or shard `:4010`.
