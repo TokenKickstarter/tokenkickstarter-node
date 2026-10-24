@@ -32,9 +32,22 @@ pub struct Cli {
     #[arg(long, default_value_t = 0)]
     pub cipher_shard_epoch: u32,
 
-    /// Seal pending messages to DA + anchor files every N seconds.
+    /// Seal pending messages to DA + anchor files every N seconds (non-hybrid mode only).
     #[arg(long, default_value_t = 10)]
     pub cipher_anchor_interval_secs: u64,
+
+    /// Adaptive hybrid throughput: ~1k msg/s idle regime → 500k aggregate at peak.
+    #[arg(long, default_value_t = true)]
+    pub cipher_hybrid_throughput: bool,
+
+    #[arg(long, default_value_t = cipher_hybrid::DEFAULT_FLOOR_TPS)]
+    pub cipher_hybrid_floor_tps: u64,
+
+    #[arg(long, default_value_t = cipher_hybrid::DEFAULT_CEILING_AGGREGATE_TPS)]
+    pub cipher_hybrid_ceiling_tps: u64,
+
+    #[arg(long, default_value_t = cipher_hybrid::DEFAULT_LOGICAL_SHARD_COUNT)]
+    pub cipher_hybrid_shard_count: u16,
 }
 
 #[derive(Debug, clap::Subcommand)]

@@ -1,0 +1,8 @@
+[package]
+name = "cipher-hybrid"
+version = "0.1.0"
+edition = "2021"
+description = "Adaptive Cipher + L1 throughput controller (1k idle → 500k aggregate peak)"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }

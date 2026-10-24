@@ -1,6 +1,8 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::Parser;
+use cipher_hybrid::{HybridConfig, HybridController};
 use cipher_shard_executor::{run_embedded, EmbeddedExecutorConfig};
 
 #[derive(Parser, Debug)]
@@ -19,12 +21,19 @@ struct Args {
     da_dir: PathBuf,
     #[arg(long, default_value = "./data/anchors")]
     anchors_dir: PathBuf,
+    #[arg(long, default_value_t = true)]
+    hybrid_throughput: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
     env_logger::init();
     let args = Args::parse();
+    let hybrid = if args.hybrid_throughput {
+        Some(Arc::new(HybridController::new(HybridConfig::default())))
+    } else {
+        None
+    };
     run_embedded(EmbeddedExecutorConfig {
         shard_id: args.shard_id,
         epoch: args.epoch,
@@ -32,6 +41,7 @@ async fn main() -> Result<(), String> {
         anchor_interval_secs: args.anchor_interval_secs,
         da_dir: args.da_dir,
         anchors_dir: args.anchors_dir,
+        hybrid,
     })
     .await
 }

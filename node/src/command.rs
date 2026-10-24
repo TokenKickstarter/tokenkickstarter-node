@@ -199,6 +199,10 @@ pub fn run() -> sc_cli::Result<()> {
                 shard_id: cli.cipher_shard_id,
                 shard_epoch: cli.cipher_shard_epoch,
                 anchor_interval_secs: cli.cipher_anchor_interval_secs,
+                hybrid_throughput: cli.cipher_hybrid_throughput,
+                hybrid_floor_tps: cli.cipher_hybrid_floor_tps,
+                hybrid_ceiling_tps: cli.cipher_hybrid_ceiling_tps,
+                hybrid_shard_count: cli.cipher_hybrid_shard_count,
             };
             let runner = cli.create_runner(&cli.run)?;
             runner.run_node_until_exit(|config| async move {

@@ -40,6 +40,10 @@ pub mod pallet {
         /// Minimum length for a username (default: 3).
         #[pallet::constant]
         type MinNameLength: Get<u32>;
+
+        /// Max registrations per `register_batch_unsigned` extrinsic.
+        #[pallet::constant]
+        type MaxNameBatchSize: Get<u32>;
     }
 
     // ─── Storage ───────────────────────────────────────────────────────
@@ -90,6 +94,8 @@ pub mod pallet {
             old_owner: T::AccountId,
             new_owner: T::AccountId,
         },
+        /// Batch registration completed. \[count\]
+        NamesBatchRegistered { count: u32 },
     }
 
     // ─── Errors ────────────────────────────────────────────────────────
@@ -113,6 +119,50 @@ pub mod pallet {
         NameNotFound,
         /// Invalid Signature for Unsigned Registration.
         InvalidSignature,
+        /// Batch exceeds `MaxNameBatchSize`.
+        BatchTooLarge,
+        /// Batch is empty.
+        BatchEmpty,
+        /// Duplicate name or owner within the same batch.
+        DuplicateInBatch,
+    }
+
+    impl<T: Config> Pallet<T> {
+        pub fn verify_register_signature(
+            name: &BoundedVec<u8, T::MaxNameLength>,
+            owner: &T::AccountId,
+            signature: &[u8; 65],
+        ) -> Result<(), Error<T>> {
+            let mut payload = name.to_vec();
+            payload.extend_from_slice(b"register");
+            let mut msg_hash = [0u8; 32];
+            msg_hash.copy_from_slice(sp_io::hashing::keccak_256(&payload).as_slice());
+
+            let recovered_pubkey = sp_io::crypto::secp256k1_ecdsa_recover(signature, &msg_hash)
+                .map_err(|_| Error::<T>::InvalidSignature)?;
+            let mut recovered_addr = [0u8; 20];
+            recovered_addr.copy_from_slice(&sp_io::hashing::keccak_256(&recovered_pubkey)[12..]);
+
+            ensure!(
+                owner.encode() == recovered_addr.encode(),
+                Error::<T>::InvalidSignature
+            );
+            Ok(())
+        }
+
+        fn validate_name_chars(name: &BoundedVec<u8, T::MaxNameLength>) -> Result<(), Error<T>> {
+            ensure!(
+                name.len() >= T::MinNameLength::get() as usize,
+                Error::<T>::NameTooShort
+            );
+            for &byte in name.iter() {
+                ensure!(
+                    byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_',
+                    Error::<T>::InvalidCharacter
+                );
+            }
+            Ok(())
+        }
     }
 
     // ─── Extrinsics ────────────────────────────────────────────────────
@@ -134,43 +184,13 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             ensure_none(origin)?;
 
-            // Valdiate Name Length
-            ensure!(
-                name.len() >= T::MinNameLength::get() as usize,
-                Error::<T>::NameTooShort
-            );
-
-            for &byte in name.iter() {
-                ensure!(
-                    byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_',
-                    Error::<T>::InvalidCharacter
-                );
-            }
-
-            // Check availability
+            Self::validate_name_chars(&name)?;
             ensure!(!Names::<T>::contains_key(&name), Error::<T>::NameTaken);
-
-            // Check account hasn't already registered
             ensure!(
                 !ReverseLookup::<T>::contains_key(&owner),
                 Error::<T>::AlreadyRegistered
             );
-
-            // Verify signature again defensively (though ValidateUnsigned does this too)
-            let mut payload = name.to_vec();
-            payload.extend_from_slice(b"register");
-            let mut msg_hash = [0u8; 32];
-            msg_hash.copy_from_slice(sp_io::hashing::keccak_256(&payload).as_slice());
-            
-            let recovered_pubkey = sp_io::crypto::secp256k1_ecdsa_recover(&signature, &msg_hash)
-                .map_err(|_| Error::<T>::InvalidSignature)?;
-            let mut recovered_addr = [0u8; 20];
-            recovered_addr.copy_from_slice(&sp_io::hashing::keccak_256(&recovered_pubkey)[12..]);
-            
-            ensure!(
-                owner.encode() == recovered_addr.encode(),
-                Error::<T>::InvalidSignature
-            );
+            Self::verify_register_signature(&name, &owner, &signature)?;
 
             // Register
             Names::<T>::insert(&name, &owner);
@@ -181,6 +201,65 @@ pub mod pallet {
             frame_system::Pallet::<T>::inc_sufficients(&owner);
 
             Self::deposit_event(Event::NameRegistered { name, owner });
+            Ok(Pays::No.into())
+        }
+
+        /// Register many usernames in one extrinsic (higher L1 name TPS).
+        #[pallet::call_index(4)]
+        #[pallet::weight((
+            Weight::from_parts(20_000_000, 0)
+                .saturating_add(Weight::from_parts(45_000_000, 0).saturating_mul(entries.len() as u64))
+                .saturating_add(T::DbWeight::get().reads_writes(2, 2).saturating_mul(entries.len() as u64)),
+            Pays::No
+        ))]
+        pub fn register_batch_unsigned(
+            origin: OriginFor<T>,
+            entries: BoundedVec<
+                (
+                    BoundedVec<u8, T::MaxNameLength>,
+                    T::AccountId,
+                    [u8; 65],
+                ),
+                T::MaxNameBatchSize,
+            >,
+        ) -> DispatchResultWithPostInfo {
+            ensure_none(origin)?;
+            ensure!(!entries.is_empty(), Error::<T>::BatchEmpty);
+
+            let mut seen_names: alloc::vec::Vec<BoundedVec<u8, T::MaxNameLength>> =
+                alloc::vec::Vec::new();
+            let mut seen_owners: alloc::vec::Vec<T::AccountId> = alloc::vec::Vec::new();
+
+            for (name, owner, signature) in entries.iter() {
+                Self::validate_name_chars(name)?;
+                Self::verify_register_signature(name, owner, signature)?;
+                ensure!(!Names::<T>::contains_key(name), Error::<T>::NameTaken);
+                ensure!(
+                    !ReverseLookup::<T>::contains_key(owner),
+                    Error::<T>::AlreadyRegistered
+                );
+                ensure!(
+                    !seen_names.iter().any(|n| n == name),
+                    Error::<T>::DuplicateInBatch
+                );
+                ensure!(
+                    !seen_owners.iter().any(|o| o == owner),
+                    Error::<T>::DuplicateInBatch
+                );
+                seen_names.push(name.clone());
+                seen_owners.push(owner.clone());
+            }
+
+            let count = entries.len() as u32;
+            for (name, owner, _signature) in entries.into_iter() {
+                Names::<T>::insert(&name, &owner);
+                ReverseLookup::<T>::insert(&owner, &name);
+                frame_system::Pallet::<T>::inc_sufficients(&owner);
+                Self::deposit_event(Event::NameRegistered { name, owner });
+            }
+            TotalNames::<T>::mutate(|n| *n = n.saturating_add(count as u64));
+            Self::deposit_event(Event::NamesBatchRegistered { count });
+
             Ok(Pays::No.into())
         }
 
@@ -196,18 +275,7 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             let who = ensure_signed(origin)?;
 
-            ensure!(
-                name.len() >= T::MinNameLength::get() as usize,
-                Error::<T>::NameTooShort
-            );
-
-            for &byte in name.iter() {
-                ensure!(
-                    byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_',
-                    Error::<T>::InvalidCharacter
-                );
-            }
-
+            Self::validate_name_chars(&name)?;
             ensure!(!Names::<T>::contains_key(&name), Error::<T>::NameTaken);
 
             ensure!(
@@ -291,38 +359,50 @@ pub mod pallet {
         type Call = Call<T>;
 
         fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-            if let Call::register_unsigned { name, owner, signature } = call {
-                let mut payload = name.to_vec();
-                payload.extend_from_slice(b"register");
-                
-                let mut msg_hash = [0u8; 32];
-                msg_hash.copy_from_slice(sp_io::hashing::keccak_256(&payload).as_slice());
-                
-                let recovered_pubkey = sp_io::crypto::secp256k1_ecdsa_recover(signature, &msg_hash)
-                    .map_err(|_| InvalidTransaction::BadProof)?;
-                    
-                let mut recovered_addr = [0u8; 20];
-                recovered_addr.copy_from_slice(&sp_io::hashing::keccak_256(&recovered_pubkey)[12..]);
-                
-                if owner.encode() != recovered_addr.encode() {
-                    return InvalidTransaction::BadProof.into();
-                }
+            match call {
+                Call::register_unsigned { name, owner, signature } => {
+                    if Pallet::<T>::verify_register_signature(name, owner, signature).is_err() {
+                        return InvalidTransaction::BadProof.into();
+                    }
+                    if Names::<T>::contains_key(name) {
+                        return InvalidTransaction::Stale.into();
+                    }
+                    if ReverseLookup::<T>::contains_key(owner) {
+                        return InvalidTransaction::Stale.into();
+                    }
 
-                if Names::<T>::contains_key(name) {
-                    return InvalidTransaction::Stale.into();
+                    ValidTransaction::with_tag_prefix("NameRegistry")
+                        .priority(100)
+                        .and_provides((owner.encode(), name.to_vec()))
+                        .longevity(64)
+                        .propagate(true)
+                        .build()
                 }
-                if ReverseLookup::<T>::contains_key(owner) {
-                    return InvalidTransaction::Stale.into();
+                Call::register_batch_unsigned { entries } => {
+                    if entries.is_empty() {
+                        return InvalidTransaction::Call.into();
+                    }
+                    let mut validity = ValidTransaction::with_tag_prefix("NameRegistryBatch")
+                        .priority(120)
+                        .longevity(64)
+                        .propagate(true);
+                    for (name, owner, signature) in entries.iter() {
+                        if Pallet::<T>::verify_register_signature(name, owner, signature).is_err()
+                        {
+                            return InvalidTransaction::BadProof.into();
+                        }
+                        if Names::<T>::contains_key(name) {
+                            return InvalidTransaction::Stale.into();
+                        }
+                        if ReverseLookup::<T>::contains_key(owner) {
+                            return InvalidTransaction::Stale.into();
+                        }
+                        validity =
+                            validity.and_provides((owner.encode(), name.to_vec()));
+                    }
+                    validity.build()
                 }
-
-                ValidTransaction::with_tag_prefix("NameRegistry")
-                    .priority(100)
-                    .and_provides((owner.encode(), name.to_vec()))
-                    .longevity(5)
-                    .propagate(true)
-                    .build()
-            } else {
-                InvalidTransaction::Call.into()
+                _ => InvalidTransaction::Call.into(),
             }
         }
     }

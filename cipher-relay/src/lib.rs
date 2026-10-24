@@ -14,6 +14,8 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+
+use cipher_hybrid::HybridController;
 use tokio::sync::{RwLock, Notify};
 use log::{info, warn, debug};
 use hyper::{body::Incoming, Request, Response, Method, StatusCode};
@@ -146,6 +148,8 @@ pub struct RelayServerConfig {
     pub port: u16,
     /// When set, successful `/store` and `Store` relay ops forward batch leaves here.
     pub shard_ingest_url: Option<String>,
+    /// Shared adaptive throughput controller (1k idle → 500k peak aggregate).
+    pub hybrid: Option<Arc<HybridController>>,
 }
 
 // ─────────────────────────────────────────────────────────
@@ -156,6 +160,7 @@ async fn handle_request(
     req: Request<Incoming>,
     store: SharedStore,
     shard_ingest_url: Option<String>,
+    hybrid: Option<Arc<HybridController>>,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
     // CORS headers for all responses
     let cors_headers = |mut resp: Response<Full<Bytes>>| -> Response<Full<Bytes>> {
@@ -190,7 +195,8 @@ async fn handle_request(
             // Generic bincode endpoint (used by client-core direct.rs)
             match bincode::deserialize::<RelayRequest>(&body_bytes) {
                 Ok(relay_req) => {
-                    handle_relay_request(relay_req, &store, shard_ingest_url.clone()).await
+                    handle_relay_request(relay_req, &store, shard_ingest_url.clone(), hybrid.clone())
+                        .await
                 }
                 Err(e) => {
                     let resp = RelayResponse::Error(format!("Decode error: {}", e));
@@ -204,7 +210,7 @@ async fn handle_request(
                 Ok(chunk) => {
                     let req = RelayRequest::Store(chunk);
                     let resp_bytes =
-                        handle_relay_request(req, &store, shard_ingest_url.clone()).await;
+                        handle_relay_request(req, &store, shard_ingest_url.clone(), hybrid.clone()).await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -219,7 +225,7 @@ async fn handle_request(
                     let recipient_id = val["recipient_id"].as_str().unwrap_or("").to_string();
                     let req = RelayRequest::Fetch { recipient_id };
                     let resp_bytes =
-                        handle_relay_request(req, &store, shard_ingest_url.clone()).await;
+                        handle_relay_request(req, &store, shard_ingest_url.clone(), hybrid.clone()).await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -238,7 +244,7 @@ async fn handle_request(
                         .unwrap_or_default();
                     let req = RelayRequest::Ack { recipient_id, message_ids };
                     let resp_bytes =
-                        handle_relay_request(req, &store, shard_ingest_url.clone()).await;
+                        handle_relay_request(req, &store, shard_ingest_url.clone(), hybrid.clone()).await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -253,7 +259,7 @@ async fn handle_request(
                     let evm_address = val["evm_address"].as_str().unwrap_or("").to_string();
                     let req = RelayRequest::Register { evm_address };
                     let resp_bytes =
-                        handle_relay_request(req, &store, shard_ingest_url.clone()).await;
+                        handle_relay_request(req, &store, shard_ingest_url.clone(), hybrid.clone()).await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -272,10 +278,17 @@ async fn handle_request(
                 "status": "ok"
             })).unwrap_or_default()
         }
+        "/hybrid/stats" => {
+            if let Some(h) = hybrid {
+                serde_json::to_vec(&h.snapshot()).unwrap_or_default()
+            } else {
+                serde_json::to_vec(&serde_json::json!({"error":"hybrid disabled"})).unwrap_or_default()
+            }
+        }
         _ => {
             serde_json::to_vec(&serde_json::json!({
                 "error": "Unknown endpoint",
-                "endpoints": ["/relay", "/store", "/fetch", "/ack", "/register", "/stats"]
+                "endpoints": ["/relay", "/store", "/fetch", "/ack", "/register", "/stats", "/hybrid/stats"]
             })).unwrap_or_default()
         }
     };
@@ -316,6 +329,7 @@ async fn handle_relay_request(
     req: RelayRequest,
     store: &SharedStore,
     shard_ingest_url: Option<String>,
+    hybrid: Option<Arc<HybridController>>,
 ) -> Vec<u8> {
     let response = match req {
         RelayRequest::Store(chunk) => {
@@ -323,6 +337,9 @@ async fn handle_relay_request(
             let mut s = store.write().await;
             match s.store(chunk.clone()) {
                 Ok(msg_id) => {
+                    if let Some(ref h) = hybrid {
+                        h.record_ingress();
+                    }
                     info!("📦 Stored message {} for {}", msg_id, recipient);
                     if let Some(notifier) = s.notifiers.get(&recipient) {
                         notifier.notify_waiters();
@@ -410,6 +427,7 @@ pub async fn run_relay_server(port: u16) -> Result<(), Box<dyn std::error::Error
     run_relay_server_with(RelayServerConfig {
         port,
         shard_ingest_url: None,
+        hybrid: None,
     })
     .await
 }
@@ -419,6 +437,7 @@ pub async fn run_relay_server_with(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let port = config.port;
     let shard_ingest_url = config.shard_ingest_url.clone();
+    let hybrid = config.hybrid.clone();
 
     info!("🚀 Cipher Storage Swarm Relay v0.1.1");
     info!("📋 Blueprint §3.5: Encrypted chunk storage with TTL auto-delete");
@@ -446,11 +465,15 @@ pub async fn run_relay_server_with(
     if let Some(ref url) = shard_ingest_url {
         info!("   Shard ingest forward: {url}");
     }
+    if hybrid.is_some() {
+        info!("   Hybrid throughput: enabled (GET /hybrid/stats)");
+    }
 
     loop {
         let (stream, remote_addr) = listener.accept().await?;
         let store = store.clone();
         let ingest = shard_ingest_url.clone();
+        let hybrid_conn = hybrid.clone();
         debug!("Connection from {}", remote_addr);
 
         tokio::spawn(async move {
@@ -458,7 +481,8 @@ pub async fn run_relay_server_with(
             let service = service_fn(move |req| {
                 let store = store.clone();
                 let ingest = ingest.clone();
-                async move { handle_request(req, store, ingest).await }
+                let hybrid = hybrid_conn.clone();
+                async move { handle_request(req, store, ingest, hybrid).await }
             });
 
             if let Err(e) = hyper::server::conn::http1::Builder::new()

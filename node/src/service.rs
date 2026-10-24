@@ -199,6 +199,10 @@ pub struct CipherStackConfig {
     pub shard_id: u16,
     pub shard_epoch: u32,
     pub anchor_interval_secs: u64,
+    pub hybrid_throughput: bool,
+    pub hybrid_floor_tps: u64,
+    pub hybrid_ceiling_tps: u64,
+    pub hybrid_shard_count: u16,
 }
 
 /// Build and start the full TKS node.
@@ -509,6 +513,18 @@ pub fn new_full(
     let da_dir = cipher_base.join("da");
     let anchors_dir = cipher_base.join("anchors");
 
+    let hybrid = if cipher.hybrid_throughput {
+        Some(std::sync::Arc::new(cipher_hybrid::HybridController::new(
+            cipher_hybrid::HybridConfig {
+                floor_tps: cipher.hybrid_floor_tps,
+                ceiling_aggregate_tps: cipher.hybrid_ceiling_tps,
+                logical_shard_count: cipher.hybrid_shard_count,
+            },
+        )))
+    } else {
+        None
+    };
+
     if cipher.enable_shard_executor {
         let exec_cfg = cipher_shard_executor::EmbeddedExecutorConfig {
             shard_id: cipher.shard_id,
@@ -517,6 +533,7 @@ pub fn new_full(
             anchor_interval_secs: cipher.anchor_interval_secs,
             da_dir,
             anchors_dir,
+            hybrid: hybrid.clone(),
         };
         task_manager.spawn_essential_handle().spawn(
             "cipher-shard-executor",
@@ -544,6 +561,7 @@ pub fn new_full(
             let relay_cfg = cipher_relay::RelayServerConfig {
                 port: relay_port,
                 shard_ingest_url,
+                hybrid,
             };
             if let Err(e) = cipher_relay::run_relay_server_with(relay_cfg).await {
                 log::error!("Cipher relay exited with error: {e:?}");

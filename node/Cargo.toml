@@ -1,6 +1,6 @@
 [package]
 name = "tks-chain-node"
-version = "0.1.2"
+version = "0.1.3"
 description = "TKS (TokenKickstarter) Substrate node — the blockchain binary anyone can run"
 authors.workspace = true
 edition.workspace = true
@@ -22,6 +22,7 @@ log = { version = "0.4" }
 hex = { version = "0.4", default-features = false }
 # TKS Local Dependencies
 cipher-relay = { path = "../cipher-relay" }
+cipher-hybrid = { path = "../cipher-hybrid" }
 cipher-shard-executor = { path = "../cipher-shard-executor" }
 
 

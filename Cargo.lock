@@ -1153,6 +1153,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cipher-hybrid"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cipher-loadtest"
 version = "0.1.1"
 dependencies = [
@@ -1173,6 +1180,7 @@ dependencies = [
  "bincode",
  "bytes",
  "chrono",
+ "cipher-hybrid",
  "env_logger",
  "futures",
  "hex",
@@ -1195,6 +1203,7 @@ version = "0.1.1"
 dependencies = [
  "bytes",
  "chrono",
+ "cipher-hybrid",
  "clap",
  "env_logger",
  "hex",
@@ -10952,6 +10961,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 name = "tks-chain-node"
 version = "0.1.2"
 dependencies = [
+ "cipher-hybrid",
  "cipher-relay",
  "cipher-shard-executor",
  "clap",

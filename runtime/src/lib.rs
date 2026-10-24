@@ -131,7 +131,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     /// Nodes with different spec_version CANNOT sync with each other.
     /// A node with lower spec_version will refuse blocks from higher.
     /// Tolerance: ±4 versions (396–404 will still sync with warning).
-    spec_version: 407,
+    spec_version: 409,
     /// Bump when node implementation changes but state transition is same
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
@@ -683,11 +683,14 @@ impl pallet_sudo::Config for Runtime {
 parameter_types! {
     pub const MaxNameLength: u32 = 32;
     pub const MinNameLength: u32 = 3;
+    /// Up to 128 `@username` claims per batch extrinsic (weight-bounded).
+    pub const MaxNameBatchSize: u32 = 128;
 }
 
 impl pallet_name_registry::Config for Runtime {
     type MaxNameLength = MaxNameLength;
     type MinNameLength = MinNameLength;
+    type MaxNameBatchSize = MaxNameBatchSize;
 }
 
 // ─── Shard Registry (HyperSwarm) ───────────────────────────────────
@@ -745,7 +748,7 @@ impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorTruncated<F> {
 //   Each adjustment: ±25% of current limit, max 4B, min 75M
 // The INITIAL gas limit — pallet-adaptive-gas will change this each block.
 // This constant is only used as the genesis/default value.
-const BLOCK_GAS_LIMIT: u64 = 500_000_000;  // 500M — starts at ~10,000 TPS
+const BLOCK_GAS_LIMIT: u64 = 50_000_000; // 50M — hybrid idle ~1k TPS; adaptive gas scales up under load
 const MAX_POV_SIZE: u64 = 10 * 1024 * 1024; // 10MB to match BlockLength
 // NOTE: GasLimitPovSizeRatio and GasLimitStorageGrowthRatio control how much gas
 // is charged for Merkle proof size and storage growth respectively. These are needed
@@ -757,7 +760,7 @@ const GAS_POV_RATIO: u64 = 0;         // 0 = disabled (standalone chain, no rela
 const GAS_STORAGE_RATIO: u64 = 0;     // 0 = disabled (storage growth uncapped per-tx)
 
 // Adaptive gas pallet constants
-const MIN_GAS_LIMIT: u64  =    75_000_000; //  75M →  ~1,500 TPS (floor)
+const MIN_GAS_LIMIT: u64  =    50_000_000; //  50M →  ~1,000 TPS (hybrid idle floor)
 const MAX_GAS_LIMIT: u64  = 4_000_000_000; //   4B → ~80,000 TPS (ceiling)
 
 /// Calculate weight per gas unit.
