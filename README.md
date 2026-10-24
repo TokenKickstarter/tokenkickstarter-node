@@ -343,7 +343,7 @@ All deposits are set to zero in the TKS configuration.
 
 ## Releases
 
-Pre-built binaries are available for all major platforms on the [Releases](https://github.com/TokenKickstarter/tokenkickstarter-node/releases) page.
+Pre-built binaries are available for all major platforms on the [Releases](https://github.com/TokenKickstarter/tokenkickstarter-node/releases) page. Version history and upgrade notes: [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 | Platform | Architecture | Binary |
 |----------|-------------|--------|

@@ -242,72 +242,16 @@ jobs:
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      - name: Build release notes from RELEASE_NOTES.md
+        run: |
+          chmod +x .github/scripts/build-release-body.sh
+          .github/scripts/build-release-body.sh "${{ github.ref_name || github.event.inputs.version }}"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: TKS Node ${{ github.ref_name || github.event.inputs.version }}
-          body: |
-            ## TKS Node ${{ github.ref_name || github.event.inputs.version }}
-
-            Layer-1 Substrate blockchain with EVM compatibility, embedded Cipher relay and shard services,
-            HyperSwarm libp2p mesh, adaptive gas, native NFTs, and free name registry on 1-second blocks.
-
-            ---
-
-            ### Downloads
-
-            | Platform | Architecture | File |
-            |----------|-------------|------|
-            | macOS | Apple Silicon (M1/M2/M3/M4) | `tks-chain-node-*-macos-arm64` |
-            | macOS | Intel (x86_64) | `tks-chain-node-*-macos-amd64` |
-            | Linux | x86_64 (servers, VPS) | `tks-chain-node-*-linux-amd64` |
-            | Linux | ARM64 (Raspberry Pi, VPS) | `tks-chain-node-*-linux-arm64` |
-            | Windows | x86_64 | `tks-chain-node-*-windows-amd64.exe` |
-
-            ---
-
-            ### Quick install (Linux/macOS)
-
-            ```bash
-            curl -sSf https://raw.githubusercontent.com/TokenKickstarter/tokenkickstarter-node/${{ github.ref_name }}/network/install.sh | bash
-            ```
-
-            ### Join the TKS network
-
-            ```bash
-            ./tks-chain-node \
-              --chain tks-testnet-spec-raw.json \
-              --base-path ~/.tks/data \
-              --rpc-external --rpc-cors all \
-              --name "MyNode"
-            ```
-
-            ### Run as validator
-
-            ```bash
-            # See network/start-validator.sh for full setup
-            ./tks-chain-node \
-              --chain tks-testnet-spec-raw.json \
-              --validator \
-              --name "MyValidator"
-            ```
-
-            ---
-
-            ### Network Info
-
-            | | |
-            |-|-|
-            | **Chain ID** | 7779 (`0x1E63`) |
-            | **Token** | TKS (18 decimals) |
-            | **Block Time** | ~1 second |
-            | **Consensus** | Aura + GRANDPA |
-            | **P2P Port** | 30333 |
-            | **RPC Port** | 9944 |
-
-            ---
-
-            See [README.md](https://github.com/TokenKickstarter/tokenkickstarter-node#readme) for full documentation.
+          body_path: release-body.md
           files: release-files/*
           draft: false
           prerelease: false
