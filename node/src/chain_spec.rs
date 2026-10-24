@@ -7,7 +7,7 @@ use sc_service::ChainType;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{sr25519, ByteArray, Pair, Public, H160};
-use tks_runtime::{AccountId, Balance, SessionKeys, Signature, TKS};
+use tks_runtime::{AccountId, Balance, SessionKeys, TKS};
 
 /// Specialized `ChainSpec` for TKS (no extensions).
 pub type ChainSpec = sc_service::GenericChainSpec;

@@ -301,6 +301,7 @@ pub fn new_full(
     let name = config.network.node_name.clone();
     let enable_grandpa = !config.disable_grandpa;
     let prometheus_registry = config.prometheus_registry().cloned();
+    let cipher_base = config.base_path.path().join("cipher");
 
     // Frontier: Ethereum block notification sinks for pubsub
     let pubsub_notification_sinks: fc_mapping_sync::EthereumBlockNotificationSinks<
@@ -509,7 +510,6 @@ pub fn new_full(
             .spawn_blocking("grandpa-voter", None, grandpa);
     }
 
-    let cipher_base = config.base_path.path().join("cipher");
     let da_dir = cipher_base.join("da");
     let anchors_dir = cipher_base.join("anchors");
 
