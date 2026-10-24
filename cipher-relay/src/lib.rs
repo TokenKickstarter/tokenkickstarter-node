@@ -3,7 +3,7 @@
 //! Per TKS Blueprint §3.5 — a relay server running alongside the TKS node.
 //! Exposes two interfaces:
 //! 1. **HTTP REST API** on port 4002 — for mobile clients (simple, cross-platform)
-//! 2. **libp2p TCP** on port 4001 — for full TKS nodes (future swarm)
+//! 2. **libp2p TCP** on port 4001 — HyperSwarm relay mesh (gossip + discovery)
 //!
 //! Endpoints:
 //! - POST /store    — upload encrypted chunk for a recipient
@@ -23,6 +23,9 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use http_body_util::{Full, BodyExt};
 use bytes::Bytes;
+
+pub mod discovery;
+pub mod swarm;
 
 // ─────────────────────────────────────────────────────────
 // Protocol Types (shared with client-core)
@@ -150,18 +153,42 @@ pub struct RelayServerConfig {
     pub shard_ingest_url: Option<String>,
     /// Shared adaptive throughput controller (1k idle → 500k peak aggregate).
     pub hybrid: Option<Arc<HybridController>>,
+    /// HyperSwarm libp2p gossip (peer relay discovery).
+    pub enable_hyperswarm: bool,
+    pub hyperswarm_port: u16,
+    /// Public HTTPS base for this relay (e.g. https://relay.tokenkickstarter.com).
+    pub public_relay_url: Option<String>,
+    /// Substrate RPC for `tks_listSwarmValidators` (e.g. http://127.0.0.1:9944).
+    pub chain_rpc_url: Option<String>,
+    pub hyperswarm_bootnodes: Vec<String>,
+    pub hyperswarm_region: Option<String>,
 }
 
 // ─────────────────────────────────────────────────────────
 // HTTP Handler
 // ─────────────────────────────────────────────────────────
 
-async fn handle_request(
-    req: Request<Incoming>,
+struct RelayHttpContext {
     store: SharedStore,
     shard_ingest_url: Option<String>,
     hybrid: Option<Arc<HybridController>>,
+    public_relay_url: Option<String>,
+    chain_rpc_url: Option<String>,
+    swarm: Option<Arc<swarm::SwarmDirectory>>,
+}
+
+async fn handle_request(
+    req: Request<Incoming>,
+    ctx: RelayHttpContext,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
+    let RelayHttpContext {
+        store,
+        shard_ingest_url,
+        hybrid,
+        public_relay_url,
+        chain_rpc_url,
+        swarm,
+    } = ctx;
     // CORS headers for all responses
     let cors_headers = |mut resp: Response<Full<Bytes>>| -> Response<Full<Bytes>> {
         resp.headers_mut().insert("Access-Control-Allow-Origin", "*".parse().unwrap());
@@ -175,7 +202,9 @@ async fn handle_request(
         return Ok(cors_headers(Response::new(Full::new(Bytes::new()))));
     }
 
-    if req.method() != &Method::POST {
+    let path = req.uri().path().to_string();
+    let get_ok = matches!(path.as_str(), "/stats" | "/hybrid/stats" | "/discovery");
+    if req.method() != Method::POST && !(req.method() == Method::GET && get_ok) {
         let resp = Response::builder()
             .status(StatusCode::METHOD_NOT_ALLOWED)
             .body(Full::new(Bytes::from("Method not allowed")))
@@ -183,11 +212,11 @@ async fn handle_request(
         return Ok(cors_headers(resp));
     }
 
-    // Extract path before consuming the request body
-    let path = req.uri().path().to_string();
-
-    // Read body
-    let body_bytes = req.collect().await?.to_bytes();
+    let body_bytes = if req.method() == Method::POST {
+        req.collect().await?.to_bytes()
+    } else {
+        Bytes::new()
+    };
 
     // Route by path
     let response = match path.as_str() {
@@ -208,9 +237,20 @@ async fn handle_request(
             // JSON endpoint for storing a chunk
             match serde_json::from_slice::<EncryptedChunk>(&body_bytes) {
                 Ok(chunk) => {
-                    let req = RelayRequest::Store(chunk);
+                    let req = RelayRequest::Store(chunk.clone());
                     let resp_bytes =
                         handle_relay_request(req, &store, shard_ingest_url.clone(), hybrid.clone()).await;
+                    if bincode::deserialize::<RelayResponse>(&resp_bytes)
+                        .map(|r| matches!(r, RelayResponse::Stored { .. }))
+                        .unwrap_or(false)
+                    {
+                        mesh_replicate(
+                            chunk,
+                            public_relay_url.clone(),
+                            chain_rpc_url.clone(),
+                            swarm.clone(),
+                        );
+                    }
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -285,10 +325,22 @@ async fn handle_request(
                 serde_json::to_vec(&serde_json::json!({"error":"hybrid disabled"})).unwrap_or_default()
             }
         }
+        "/discovery" => {
+            let peer_id = swarm.as_ref().map(|s| s.local_peer_id().to_string());
+            let disc = discovery::build_discovery(
+                public_relay_url.clone(),
+                peer_id,
+                chain_rpc_url.clone(),
+                swarm.clone(),
+                hybrid.clone(),
+            )
+            .await;
+            serde_json::to_vec(&disc).unwrap_or_default()
+        }
         _ => {
             serde_json::to_vec(&serde_json::json!({
                 "error": "Unknown endpoint",
-                "endpoints": ["/relay", "/store", "/fetch", "/ack", "/register", "/stats", "/hybrid/stats"]
+                "endpoints": ["/relay", "/store", "/fetch", "/ack", "/register", "/stats", "/hybrid/stats", "/discovery"]
             })).unwrap_or_default()
         }
     };
@@ -300,6 +352,37 @@ async fn handle_request(
         .unwrap();
 
     Ok(cors_headers(resp))
+}
+
+/// Best-effort copy to other known relays (chain + gossip) so one host down ≠ lost messages.
+fn mesh_replicate(
+    chunk: EncryptedChunk,
+    self_http: Option<String>,
+    chain_rpc_url: Option<String>,
+    swarm: Option<Arc<swarm::SwarmDirectory>>,
+) {
+    tokio::spawn(async move {
+        let peer_id = swarm.as_ref().map(|s| s.local_peer_id().to_string());
+        let disc = discovery::build_discovery(
+            self_http.clone(),
+            peer_id,
+            chain_rpc_url,
+            swarm,
+            None,
+        )
+        .await;
+        let client = reqwest::Client::new();
+        for relay in disc.relays.iter().take(8) {
+            if relay.http_base.is_empty() {
+                continue;
+            }
+            if Some(relay.http_base.as_str()) == self_http.as_deref() {
+                continue;
+            }
+            let url = format!("{}/store", relay.http_base.trim_end_matches('/'));
+            let _ = client.post(url).json(&chunk).send().await;
+        }
+    });
 }
 
 async fn forward_shard_ingest(url: &str, chunk: &EncryptedChunk, msg_id: &str) {
@@ -346,8 +429,9 @@ async fn handle_relay_request(
                     }
                     if let Some(url) = shard_ingest_url {
                         let mid = msg_id.clone();
+                        let c = chunk.clone();
                         tokio::spawn(async move {
-                            forward_shard_ingest(&url, &chunk, &mid).await;
+                            forward_shard_ingest(&url, &c, &mid).await;
                         });
                     }
                     RelayResponse::Stored { message_id: msg_id }
@@ -428,6 +512,12 @@ pub async fn run_relay_server(port: u16) -> Result<(), Box<dyn std::error::Error
         port,
         shard_ingest_url: None,
         hybrid: None,
+        enable_hyperswarm: true,
+        hyperswarm_port: 4001,
+        public_relay_url: None,
+        chain_rpc_url: None,
+        hyperswarm_bootnodes: vec![],
+        hyperswarm_region: None,
     })
     .await
 }
@@ -438,8 +528,34 @@ pub async fn run_relay_server_with(
     let port = config.port;
     let shard_ingest_url = config.shard_ingest_url.clone();
     let hybrid = config.hybrid.clone();
+    let public_relay_url = config.public_relay_url.clone();
+    let chain_rpc_url = config.chain_rpc_url.clone();
 
-    info!("🚀 Cipher Storage Swarm Relay v0.1.1");
+    let swarm = if config.enable_hyperswarm {
+        let bootnodes: Result<Vec<_>, _> = config
+            .hyperswarm_bootnodes
+            .iter()
+            .map(|s| s.parse())
+            .collect();
+        match swarm::run_hyperswarm_swarm(swarm::SwarmConfig {
+            listen_port: config.hyperswarm_port,
+            public_http_base: public_relay_url.clone(),
+            region: config.hyperswarm_region.clone(),
+            bootnodes: bootnodes.unwrap_or_default(),
+        })
+        .await
+        {
+            Ok(d) => Some(d),
+            Err(e) => {
+                warn!("HyperSwarm libp2p failed to start: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    info!("🚀 Cipher Storage Swarm Relay v0.1.3 (HyperSwarm)");
     info!("📋 Blueprint §3.5: Encrypted chunk storage with TTL auto-delete");
 
     // Storage backend (100 GB max)
@@ -461,28 +577,44 @@ pub async fn run_relay_server_with(
     let addr: SocketAddr = format!("0.0.0.0:{}", port).parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("🌐 HTTP REST API listening on http://0.0.0.0:{}", port);
-    info!("   Endpoints: /relay /store /fetch /ack /register /stats");
+    info!("   Endpoints: /relay /store /fetch /ack /register /stats /discovery");
     if let Some(ref url) = shard_ingest_url {
         info!("   Shard ingest forward: {url}");
     }
     if hybrid.is_some() {
         info!("   Hybrid throughput: enabled (GET /hybrid/stats)");
     }
+    if swarm.is_some() {
+        info!(
+            "   HyperSwarm libp2p on port {} (GET /discovery)",
+            config.hyperswarm_port
+        );
+    }
 
     loop {
         let (stream, remote_addr) = listener.accept().await?;
-        let store = store.clone();
-        let ingest = shard_ingest_url.clone();
-        let hybrid_conn = hybrid.clone();
+        let ctx = RelayHttpContext {
+            store: store.clone(),
+            shard_ingest_url: shard_ingest_url.clone(),
+            hybrid: hybrid.clone(),
+            public_relay_url: public_relay_url.clone(),
+            chain_rpc_url: chain_rpc_url.clone(),
+            swarm: swarm.clone(),
+        };
         debug!("Connection from {}", remote_addr);
 
         tokio::spawn(async move {
             let io = TokioIo::new(stream);
             let service = service_fn(move |req| {
-                let store = store.clone();
-                let ingest = ingest.clone();
-                let hybrid = hybrid_conn.clone();
-                async move { handle_request(req, store, ingest, hybrid).await }
+                let ctx = RelayHttpContext {
+                    store: ctx.store.clone(),
+                    shard_ingest_url: ctx.shard_ingest_url.clone(),
+                    hybrid: ctx.hybrid.clone(),
+                    public_relay_url: ctx.public_relay_url.clone(),
+                    chain_rpc_url: ctx.chain_rpc_url.clone(),
+                    swarm: ctx.swarm.clone(),
+                };
+                async move { handle_request(req, ctx).await }
             });
 
             if let Err(e) = hyper::server::conn::http1::Builder::new()

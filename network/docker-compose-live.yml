@@ -28,6 +28,7 @@ services:
       - "30333:30333"
       - "127.0.0.1:4002:4002"
       - "127.0.0.1:4010:4010"
+      - "4001:4001"
     volumes:
       - tks-data-fullnode:/data
       - type: bind
@@ -51,6 +52,9 @@ services:
       --enable-cipher-shard-executor
       --cipher-shard-port=4010
       --cipher-shard-id=0
+      --enable-cipher-hyperswarm
+      --cipher-hyperswarm-port=4001
+      --cipher-public-relay-url=https://relay.tokenkickstarter.com
       --bootnodes /bootnodes.txt
 
   tks-validator1:

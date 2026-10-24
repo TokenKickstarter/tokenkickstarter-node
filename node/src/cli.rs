@@ -48,6 +48,24 @@ pub struct Cli {
 
     #[arg(long, default_value_t = cipher_hybrid::DEFAULT_LOGICAL_SHARD_COUNT)]
     pub cipher_hybrid_shard_count: u16,
+
+    /// HyperSwarm libp2p mesh for multi-relay discovery (port 4001).
+    #[arg(long, default_value_t = true)]
+    pub enable_cipher_hyperswarm: bool,
+
+    #[arg(long, default_value_t = 4001)]
+    pub cipher_hyperswarm_port: u16,
+
+    /// Public HTTPS base advertised to peers (e.g. https://relay.tokenkickstarter.com).
+    #[arg(long)]
+    pub cipher_public_relay_url: Option<String>,
+
+    /// Comma-separated libp2p bootmultiaddrs for HyperSwarm.
+    #[arg(long, value_delimiter = ',')]
+    pub cipher_hyperswarm_bootnodes: Vec<String>,
+
+    #[arg(long, default_value = "asia")]
+    pub cipher_hyperswarm_region: String,
 }
 
 #[derive(Debug, clap::Subcommand)]

@@ -3,6 +3,7 @@
 mod chain_spec;
 mod cli;
 mod command;
+mod hyperswarm_rpc;
 mod rpc;
 mod service;
 

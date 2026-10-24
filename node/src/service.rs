@@ -203,6 +203,11 @@ pub struct CipherStackConfig {
     pub hybrid_floor_tps: u64,
     pub hybrid_ceiling_tps: u64,
     pub hybrid_shard_count: u16,
+    pub enable_hyperswarm: bool,
+    pub hyperswarm_port: u16,
+    pub public_relay_url: Option<String>,
+    pub hyperswarm_bootnodes: Vec<String>,
+    pub hyperswarm_region: String,
 }
 
 /// Build and start the full TKS node.
@@ -302,6 +307,7 @@ pub fn new_full(
     let enable_grandpa = !config.disable_grandpa;
     let prometheus_registry = config.prometheus_registry().cloned();
     let cipher_base = config.base_path.path().join("cipher");
+    let chain_rpc_url = format!("http://127.0.0.1:{}", config.rpc.port);
 
     // Frontier: Ethereum block notification sinks for pubsub
     let pubsub_notification_sinks: fc_mapping_sync::EthereumBlockNotificationSinks<
@@ -556,12 +562,20 @@ pub fn new_full(
         } else {
             None
         };
+        let chain_rpc_url = chain_rpc_url.clone();
+        let cipher_relay = cipher.clone();
         task_manager.spawn_essential_handle().spawn("cipher-relay", Some("network"), async move {
             log::info!("Starting embedded Cipher relay on port {relay_port}...");
             let relay_cfg = cipher_relay::RelayServerConfig {
                 port: relay_port,
                 shard_ingest_url,
                 hybrid,
+                enable_hyperswarm: cipher_relay.enable_hyperswarm,
+                hyperswarm_port: cipher_relay.hyperswarm_port,
+                public_relay_url: cipher_relay.public_relay_url.clone(),
+                chain_rpc_url: Some(chain_rpc_url),
+                hyperswarm_bootnodes: cipher_relay.hyperswarm_bootnodes.clone(),
+                hyperswarm_region: Some(cipher_relay.hyperswarm_region.clone()),
             };
             if let Err(e) = cipher_relay::run_relay_server_with(relay_cfg).await {
                 log::error!("Cipher relay exited with error: {e:?}");

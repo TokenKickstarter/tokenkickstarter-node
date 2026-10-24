@@ -119,6 +119,8 @@ where
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
+    use crate::hyperswarm_rpc::HyperswarmApiServer;
+
     let mut io = RpcModule::new(());
 
     let FullDeps {
@@ -214,6 +216,8 @@ where
     )?;
 
     io.merge(Web3::new(client).into_rpc())?;
+
+    io.merge(HyperswarmRpc::new(client.clone()).into_rpc())?;
 
     Ok(io)
 }

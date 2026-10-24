@@ -203,6 +203,11 @@ pub fn run() -> sc_cli::Result<()> {
                 hybrid_floor_tps: cli.cipher_hybrid_floor_tps,
                 hybrid_ceiling_tps: cli.cipher_hybrid_ceiling_tps,
                 hybrid_shard_count: cli.cipher_hybrid_shard_count,
+                enable_hyperswarm: cli.enable_cipher_hyperswarm,
+                hyperswarm_port: cli.cipher_hyperswarm_port,
+                public_relay_url: cli.cipher_public_relay_url.clone(),
+                hyperswarm_bootnodes: cli.cipher_hyperswarm_bootnodes.clone(),
+                hyperswarm_region: cli.cipher_hyperswarm_region.clone(),
             };
             let runner = cli.create_runner(&cli.run)?;
             runner.run_node_until_exit(|config| async move {
