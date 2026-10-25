@@ -116,6 +116,7 @@ pub fn run() -> sc_cli::Result<()> {
             cmd.run();
             Ok(())
         }
+        Some(Subcommand::CipherRegisterShard(cmd)) => cmd.run(),
 
         Some(Subcommand::BuildSpec(cmd)) => {
             let runner = cli.create_runner(cmd)?;

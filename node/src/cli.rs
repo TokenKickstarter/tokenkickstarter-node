@@ -115,6 +115,9 @@ pub enum Subcommand {
     ///     -H "Content-Type: application/json" \
     ///     -d '{"jsonrpc":"2.0","method":"rpc_methods","params":[],"id":1}'
     RpcHelp(RpcHelpCmd),
+
+    /// Register HyperSwarm validator + sudo force shard rotation (dev / ops).
+    CipherRegisterShard(crate::shard_setup_cmd::CipherRegisterShardCmd),
 }
 
 /// Arguments for the `rpc-help` subcommand.

@@ -4,6 +4,14 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.11
+
+### Ops
+
+- CLI: `tks-chain-node cipher-register-shard` — `ShardRegistry.register_validator` + sudo `force_rotate` via validator RPC (Frontier ECDSA signing).
+
+---
+
 ## v0.1.10
 
 ### Fixes

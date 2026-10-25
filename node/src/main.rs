@@ -5,6 +5,8 @@ mod cipher_anchor;
 mod cipher_epoch;
 mod cli;
 mod command;
+mod extrinsic_sign;
+mod shard_setup_cmd;
 mod hyperswarm_rpc;
 mod rpc;
 mod service;

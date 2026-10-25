@@ -1,6 +1,6 @@
 [package]
 name = "tks-chain-node"
-version = "0.1.10"
+version = "0.1.11"
 description = "TKS (TokenKickstarter) Substrate node — the blockchain binary anyone can run"
 authors.workspace = true
 edition.workspace = true
@@ -95,5 +95,7 @@ cumulus-primitives-proof-size-hostfunction = { workspace = true }
 # Runtime
 tks-runtime = { path = "../runtime" }
 pallet-shard-registry = { path = "../pallets/pallet-shard-registry", default-features = false, features = ["std"] }
+frame-support = { workspace = true, default-features = false, features = ["std"] }
+ureq = { version = "2", features = ["json"] }
 codec = { workspace = true, features = ["std"] }
 tokio = { version = "1", features = ["time"] }
