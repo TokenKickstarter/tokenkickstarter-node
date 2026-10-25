@@ -16,6 +16,7 @@ use std::sync::Arc;
 use cipher_hybrid::HybridController;
 
 use crate::batch::CipherBatchMessage;
+use crate::build_info::SharedChainBuildInfo;
 use crate::engine::SharedEngine;
 use crate::multi_engine::SharedMultiEngine;
 
@@ -23,6 +24,7 @@ pub async fn run_http_ingest_hybrid(
     port: u16,
     engine: SharedMultiEngine,
     hybrid: Arc<HybridController>,
+    build_info: Option<SharedChainBuildInfo>,
 ) -> Result<(), String> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await.map_err(|e| e.to_string())?;
@@ -32,12 +34,14 @@ pub async fn run_http_ingest_hybrid(
         let (stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
         let engine = engine.clone();
         let hybrid = hybrid.clone();
+        let build_info = build_info.clone();
         tokio::spawn(async move {
             let io = TokioIo::new(stream);
             let svc = service_fn(move |req| {
                 let engine = engine.clone();
                 let hybrid = hybrid.clone();
-                async move { handle_hybrid(req, engine, hybrid).await }
+                let build_info = build_info.clone();
+                async move { handle_hybrid(req, engine, hybrid, build_info).await }
             });
             if let Err(err) = http1::Builder::new().serve_connection(io, svc).await {
                 log::debug!("connection error: {err}");
@@ -50,10 +54,18 @@ async fn handle_hybrid(
     req: Request<Incoming>,
     engine: SharedMultiEngine,
     hybrid: Arc<HybridController>,
+    build_info: Option<SharedChainBuildInfo>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let (parts, body) = req.into_parts();
     match (parts.method, parts.uri.path()) {
         (Method::GET, "/health") => ok_json(r#"{"status":"ok"}"#),
+        (Method::GET, "/version") => {
+            if let Some(info) = build_info {
+                ok_json(&serde_json::to_string(info.as_ref()).unwrap_or_else(|_| "{}".into()))
+            } else {
+                ok_json(r#"{"error":"build_info unavailable"}"#)
+            }
+        }
         (Method::GET, "/hybrid/stats") => {
             let snap = hybrid.snapshot();
             ok_json(&serde_json::to_string(&snap).unwrap_or_else(|_| "{}".into()))

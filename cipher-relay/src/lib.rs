@@ -24,8 +24,11 @@ use hyper_util::rt::TokioIo;
 use http_body_util::{Full, BodyExt};
 use bytes::Bytes;
 
+pub mod build_info;
 pub mod discovery;
 pub mod hyperswarm;
+
+pub use build_info::{ChainBuildInfo, SharedChainBuildInfo};
 
 // ─────────────────────────────────────────────────────────
 // Protocol Types (shared with client-core)
@@ -178,6 +181,8 @@ pub struct RelayServerConfig {
     pub chain_rpc_url: Option<String>,
     pub hyperswarm_bootnodes: Vec<String>,
     pub hyperswarm_region: Option<String>,
+    /// Embedded node version + chain identity (GET /version).
+    pub build_info: Option<SharedChainBuildInfo>,
 }
 
 // ─────────────────────────────────────────────────────────
@@ -191,6 +196,7 @@ struct RelayHttpContext {
     public_relay_url: Option<String>,
     chain_rpc_url: Option<String>,
     hyperswarm: Option<Arc<hyperswarm::HyperSwarmHandle>>,
+    build_info: Option<SharedChainBuildInfo>,
 }
 
 async fn handle_request(
@@ -204,6 +210,7 @@ async fn handle_request(
         public_relay_url,
         chain_rpc_url,
         hyperswarm,
+        build_info,
     } = ctx;
     // CORS headers for all responses
     let cors_headers = |mut resp: Response<Full<Bytes>>| -> Response<Full<Bytes>> {
@@ -219,7 +226,10 @@ async fn handle_request(
     }
 
     let path = req.uri().path().to_string();
-    let get_ok = matches!(path.as_str(), "/stats" | "/hybrid/stats" | "/discovery");
+    let get_ok = matches!(
+        path.as_str(),
+        "/stats" | "/hybrid/stats" | "/discovery" | "/version"
+    );
     if req.method() != Method::POST && !(req.method() == Method::GET && get_ok) {
         let resp = Response::builder()
             .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -390,10 +400,18 @@ async fn handle_request(
             .await;
             serde_json::to_vec(&disc).unwrap_or_default()
         }
+        "/version" => {
+            if let Some(info) = build_info {
+                serde_json::to_vec(info.as_ref()).unwrap_or_default()
+            } else {
+                serde_json::to_vec(&serde_json::json!({"error":"build_info unavailable"}))
+                    .unwrap_or_default()
+            }
+        }
         _ => {
             serde_json::to_vec(&serde_json::json!({
                 "error": "Unknown endpoint",
-                "endpoints": ["/relay", "/store", "/fetch", "/ack", "/register", "/stats", "/hybrid/stats", "/discovery"]
+                "endpoints": ["/relay", "/store", "/fetch", "/ack", "/register", "/stats", "/hybrid/stats", "/discovery", "/version"]
             })).unwrap_or_default()
         }
     };
@@ -588,6 +606,7 @@ pub async fn run_relay_server(port: u16) -> Result<(), Box<dyn std::error::Error
         chain_rpc_url: None,
         hyperswarm_bootnodes: vec![],
         hyperswarm_region: None,
+        build_info: None,
     })
     .await
 }
@@ -600,6 +619,7 @@ pub async fn run_relay_server_with(
     let hybrid = config.hybrid.clone();
     let public_relay_url = config.public_relay_url.clone();
     let chain_rpc_url = config.chain_rpc_url.clone();
+    let build_info = config.build_info.clone();
 
     info!("🚀 Cipher Storage Swarm Relay v0.1.5 (HyperSwarm chunk pull)");
     info!("📋 Blueprint §3.5: Encrypted chunk storage with TTL auto-delete");
@@ -672,6 +692,7 @@ pub async fn run_relay_server_with(
             public_relay_url: public_relay_url.clone(),
             chain_rpc_url: chain_rpc_url.clone(),
             hyperswarm: hyperswarm.clone(),
+            build_info: build_info.clone(),
         };
         debug!("Connection from {}", remote_addr);
 
@@ -685,6 +706,7 @@ pub async fn run_relay_server_with(
                     public_relay_url: ctx.public_relay_url.clone(),
                     chain_rpc_url: ctx.chain_rpc_url.clone(),
                     hyperswarm: ctx.hyperswarm.clone(),
+                    build_info: ctx.build_info.clone(),
                 };
                 async move { handle_request(req, ctx).await }
             });

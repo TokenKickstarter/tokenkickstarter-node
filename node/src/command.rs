@@ -117,6 +117,11 @@ pub fn run() -> sc_cli::Result<()> {
             Ok(())
         }
         Some(Subcommand::CipherRegisterShard(cmd)) => cmd.run(),
+        Some(Subcommand::Production(cmd)) => match cmd {
+            crate::genesis_util::ProductionCmd::AccountId20(c) => c.run(),
+            crate::genesis_util::ProductionCmd::MultisigAccount(c) => c.run(),
+            crate::genesis_util::ProductionCmd::MultisigSudoForceRotate(c) => c.run(),
+        },
 
         Some(Subcommand::BuildSpec(cmd)) => {
             let runner = cli.create_runner(cmd)?;
@@ -194,6 +199,7 @@ pub fn run() -> sc_cli::Result<()> {
         }
         None => {
             let cipher = service::CipherStackConfig {
+                disable_cipher_stack: cli.disable_cipher_stack,
                 enable_relay: cli.enable_cipher_relay,
                 relay_port: cli.cipher_relay_port,
                 enable_shard_executor: cli.enable_cipher_shard_executor,

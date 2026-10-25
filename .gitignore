@@ -28,6 +28,9 @@ network/bootnodes/*.key
 network/keystore/
 keystore/
 network/production-keys/
+network/production-genesis-input.json
+network/tks-network-spec.json
+network/tks-network-spec-raw.json
 
 # ── Compiled Node Binaries ──────────────────────────────────────────
 # Binary releases belong in GitHub Releases, not the repo.

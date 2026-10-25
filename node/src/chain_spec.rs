@@ -28,6 +28,7 @@ pub fn hex_to_account(hex: &str) -> AccountId {
 }
 
 /// Generate an account ID from seed (Mapping Substrate seeds to standard Ethereum H160).
+/// Runtime `AccountId20` for an ECDSA secret URI (must match genesis / staking accounts).
 pub fn get_account_id_from_seed(seed: &str) -> AccountId {
     match seed {
         "Alice" => hex_to_account("0xe04cc55ebee1cbce552f250e85c57b70b2e2625b"),

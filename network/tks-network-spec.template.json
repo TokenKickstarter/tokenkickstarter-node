@@ -33,10 +33,10 @@
           "key": null
         },
         "shardRegistry": {
-          "initial_shard_count": 8,
-          "validators_per_shard": 7,
+          "initialShardCount": 8,
+          "validatorsPerShard": 7,
           "validators": [],
-          "require_staked_validators": true
+          "requireStakedValidators": true
         },
         "evmChainId": {
           "chainId": 7779

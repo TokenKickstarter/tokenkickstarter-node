@@ -236,6 +236,17 @@ jobs:
             > release-files/tks-testnet-spec-raw.json
           echo "Chainspec generated"
 
+      - name: Reject production secrets in release bundle
+        run: |
+          if find release-files -name '*production-keys*' | grep -q .; then
+            echo "production-keys must not ship in releases"
+            exit 1
+          fi
+          if grep -rE 'secretPhrase|secretSeed|BEGIN OPENSSH' release-files 2>/dev/null; then
+            echo "Release files contain secret material"
+            exit 1
+          fi
+
       - name: Generate SHA256 checksums
         run: |
           cd release-files

@@ -1,6 +1,6 @@
 [package]
 name = "tks-chain-node"
-version = "0.1.11"
+version = "0.1.12"
 description = "TKS (TokenKickstarter) Substrate node — the blockchain binary anyone can run"
 authors.workspace = true
 edition.workspace = true
@@ -25,6 +25,10 @@ hex = { version = "0.4", default-features = false }
 cipher-relay = { path = "../cipher-relay" }
 cipher-shard-executor = { path = "../cipher-shard-executor" }
 pallet-hyperswarm-anchor = { path = "../pallets/pallet-hyperswarm-anchor", default-features = false, features = ["std"] }
+pallet-multisig = { workspace = true, default-features = false, features = ["std"] }
+pallet-sudo = { workspace = true, default-features = false, features = ["std"] }
+pallet-shard-registry = { path = "../pallets/pallet-shard-registry", default-features = false, features = ["std"] }
+frame-support = { workspace = true, default-features = false, features = ["std"] }
 fp-self-contained = { workspace = true, features = ["std"] }
 frame-system = { workspace = true, default-features = false, features = ["std"] }
 pallet-transaction-payment = { workspace = true, default-features = false, features = ["std"] }
@@ -94,8 +98,6 @@ cumulus-primitives-proof-size-hostfunction = { workspace = true }
 
 # Runtime
 tks-runtime = { path = "../runtime" }
-pallet-shard-registry = { path = "../pallets/pallet-shard-registry", default-features = false, features = ["std"] }
-frame-support = { workspace = true, default-features = false, features = ["std"] }
 ureq = { version = "2", features = ["json"] }
 codec = { workspace = true, features = ["std"] }
 tokio = { version = "1", features = ["time"] }

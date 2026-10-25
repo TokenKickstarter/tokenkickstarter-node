@@ -6,6 +6,8 @@ use std::sync::Arc;
 use codec::Encode;
 use cipher_shard_executor::anchor::AnchorSubmitPayload;
 use fp_account::AccountId20;
+
+use crate::account_id20::from_secret_uri;
 use frame_system_rpc_runtime_api::AccountNonceApi;
 use futures::FutureExt;
 use pallet_hyperswarm_anchor::Call as HyperSwarmAnchorCall;
@@ -19,8 +21,9 @@ use sp_runtime::{
     generic::{Era, SignedPayload},
     traits::Block as BlockT,
 };
-use tks_runtime::{RuntimeCall, Signature, SignedExtra, UncheckedExtrinsic};
+use tks_runtime::{RuntimeCall, SignedExtra, UncheckedExtrinsic};
 
+use crate::ethereum_sign::sign_ethereum_payload;
 use crate::service::{FullClient, FullTransactionPool as Pool};
 
 type Block = tks_runtime::Block;
@@ -31,9 +34,10 @@ pub fn spawn_anchor_submitter(
     client: Arc<FullClient>,
     pool: Arc<Pool>,
     anchors_dir: PathBuf,
+    seed: String,
     signer: ecdsa::Pair,
 ) {
-    let account = AccountId20::from(signer.public());
+    let account = from_secret_uri(&seed);
     log::info!(
         target: "cipher-anchor",
         "Auto post_anchor enabled for account {account:?}, watching {}",
@@ -190,8 +194,7 @@ async fn submit_post_anchor(
         ),
     );
 
-    let ecdsa_sig = raw_payload.using_encoded(|payload| signer.sign(payload));
-    let signature = Signature::new(ecdsa_sig);
+    let signature = raw_payload.using_encoded(|payload| sign_ethereum_payload(signer, payload));
 
     let ext = UncheckedExtrinsic::new_signed(call, account, signature, extra);
 

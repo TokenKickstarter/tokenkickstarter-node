@@ -8,6 +8,10 @@ pub struct Cli {
     #[clap(flatten)]
     pub run: RunCmd,
 
+    /// Disable embedded Cipher relay, shard executor, and HyperSwarm (validator-only nodes).
+    #[arg(long, default_value_t = false)]
+    pub disable_cipher_stack: bool,
+
     /// Whether to enable the embedded Cipher Storage Relay
     #[arg(long, default_value_t = true)]
     pub enable_cipher_relay: bool,
@@ -118,6 +122,10 @@ pub enum Subcommand {
 
     /// Register HyperSwarm validator + sudo force shard rotation (dev / ops).
     CipherRegisterShard(crate::shard_setup_cmd::CipherRegisterShardCmd),
+
+    /// Production genesis helpers (AccountId20, multisig sudo address).
+    #[command(subcommand)]
+    Production(crate::genesis_util::ProductionCmd),
 }
 
 /// Arguments for the `rpc-help` subcommand.

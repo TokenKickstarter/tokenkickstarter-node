@@ -1,0 +1,23 @@
+{
+  "comment": "Copy to production-genesis-input.json and fill treasury addresses OR leave null to auto-generate per bucket.",
+  "total_supply_tks": 1000000000,
+  "sudo_multisig_threshold": 2,
+  "sudo_multisig_members": 3,
+  "require_staked_validators": true,
+  "initial_shard_count": 8,
+  "validators_per_shard": 7,
+  "shard_endpoints": [
+    "https://shard.tokenkickstarter.com",
+    "https://shard.tokenkickstarter.com"
+  ],
+  "allocations": [
+    { "label": "team", "amount_tks": 150000000, "address": null },
+    { "label": "bridge", "amount_tks": 300000000, "address": null },
+    { "label": "ecosystem", "amount_tks": 150000000, "address": null },
+    { "label": "treasury", "amount_tks": 100000000, "address": null },
+    { "label": "validators", "amount_tks": 50000000, "address": null },
+    { "label": "public_sale", "amount_tks": 150000000, "address": null },
+    { "label": "airdrop", "amount_tks": 100000000, "address": null }
+  ],
+  "boot_nodes": []
+}

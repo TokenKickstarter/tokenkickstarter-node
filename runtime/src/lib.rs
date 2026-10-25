@@ -131,7 +131,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     /// Nodes with different spec_version CANNOT sync with each other.
     /// A node with lower spec_version will refuse blocks from higher.
     /// Tolerance: ±4 versions (396–404 will still sync with warning).
-    spec_version: 410,
+    spec_version: 411,
     /// Bump when node implementation changes but state transition is same
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
@@ -678,6 +678,23 @@ impl pallet_sudo::Config for Runtime {
     type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
+parameter_types! {
+    pub const MultisigDepositBase: Balance = 200_000_000_000_000_000; // 0.2 TKS
+    pub const MultisigDepositFactor: Balance = 50_000_000_000_000_000; // 0.05 TKS per signatory
+    pub const MaxMultisigSignatories: u32 = 100;
+}
+
+impl pallet_multisig::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+    type Currency = Balances;
+    type DepositBase = MultisigDepositBase;
+    type DepositFactor = MultisigDepositFactor;
+    type MaxSignatories = MaxMultisigSignatories;
+    type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
+    type BlockNumberProvider = System;
+}
+
 // ─── Name Registry (TKS Username Pallet — 100% FREE) ──────────────
 
 parameter_types! {
@@ -1003,6 +1020,7 @@ construct_runtime!(
 
         // Governance (temporary)
         Sudo: pallet_sudo,
+        Multisig: pallet_multisig,
 
         // TKS Custom
         NameRegistry: pallet_name_registry,

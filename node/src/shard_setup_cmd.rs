@@ -2,6 +2,8 @@
 
 use codec::{Decode, Encode};
 use fp_account::AccountId20;
+
+use crate::account_id20::from_secret_uri;
 use frame_support::BoundedVec;
 use pallet_shard_registry::{Call as ShardRegistryCall, GeoRegion};
 use sp_core::{ecdsa, H256, Pair};
@@ -19,9 +21,13 @@ pub struct CipherRegisterShardCmd {
     #[arg(long, default_value = "http://127.0.0.1:9944")]
     pub submit_url: String,
 
-    /// ECDSA secret URI (same account as `--cipher-anchor-seed-file`, e.g. `//Alice` on dev).
-    #[arg(long, default_value = "//Alice")]
-    pub seed: String,
+    /// File with one line: ECDSA secret URI (required in production).
+    #[arg(long)]
+    pub seed_file: Option<std::path::PathBuf>,
+
+    /// Dev-only URI override (conflicts with `--seed-file`; never use on mainnet).
+    #[arg(long, hide = true)]
+    pub seed: Option<String>,
 
     /// HyperSwarm endpoint stored on-chain (HTTPS URL for shard ingest).
     #[arg(long, default_value = "https://shard.tokenkickstarter.com")]
@@ -47,8 +53,12 @@ pub struct CipherRegisterShardCmd {
 impl CipherRegisterShardCmd {
     pub fn run(&self) -> sc_cli::Result<()> {
         let query_url = self.rpc_url.as_deref().unwrap_or(&self.submit_url);
-        let pair = ecdsa::Pair::from_legacy_string(self.seed.trim(), None);
-        let account = AccountId20::from(pair.public());
+        let seed = resolve_seed(
+            self.seed_file.as_ref().map(|p| p.as_path()),
+            self.seed.as_deref(),
+        )?;
+        let pair = ecdsa::Pair::from_legacy_string(seed.trim(), None);
+        let account = from_secret_uri(&seed);
         let genesis_hash = match &self.genesis_hash {
             Some(h) => parse_hash(h).map_err(|e| sc_cli::Error::Input(e.into()))?,
             None => fetch_genesis_hash(query_url)?,
@@ -71,14 +81,14 @@ impl CipherRegisterShardCmd {
                 region: GeoRegion::NorthAmerica,
                 endpoint,
             });
-            let ext = encode_signed_extrinsic(call, &pair, nonce, genesis_hash)
+            let ext = encode_signed_extrinsic(call, &pair, account, nonce, genesis_hash)
                 .map_err(|e| sc_cli::Error::Application(e.into()))?;
             submit_or_print(&self.submit_url, &ext, self.dry_run, "register_validator")?;
             nonce = nonce.saturating_add(1);
         }
 
         let call = RuntimeCall::ShardRegistry(ShardRegistryCall::force_rotate {});
-        let ext = encode_signed_extrinsic(call, &pair, nonce, genesis_hash)
+        let ext = encode_signed_extrinsic(call, &pair, account, nonce, genesis_hash)
             .map_err(|e| sc_cli::Error::Application(e.into()))?;
         submit_or_print(&self.submit_url, &ext, self.dry_run, "force_rotate")?;
 
@@ -106,13 +116,33 @@ fn submit_or_print(
     Ok(())
 }
 
-fn fetch_genesis_hash(url: &str) -> Result<Hash, sc_cli::Error> {
+fn resolve_seed(
+    file: Option<&std::path::Path>,
+    uri: Option<&str>,
+) -> Result<String, sc_cli::Error> {
+    match (file, uri) {
+        (Some(path), None) => {
+            let s = std::fs::read_to_string(path)
+                .map_err(|e| sc_cli::Error::Input(format!("read {}: {e}", path.display())))?;
+            Ok(s.lines().next().unwrap_or("").trim().to_string())
+        }
+        (None, Some(u)) => Ok(u.to_string()),
+        (Some(_), Some(_)) => Err(sc_cli::Error::Input(
+            "use either --seed-file or --seed, not both".into(),
+        )),
+        (None, None) => Err(sc_cli::Error::Input(
+            "--seed-file is required (path to ECDSA secret URI)".into(),
+        )),
+    }
+}
+
+pub(crate) fn fetch_genesis_hash(url: &str) -> Result<Hash, sc_cli::Error> {
     let hex = rpc_call(url, "chain_getBlockHash", serde_json::json!([0]))?;
     let hex = hex.as_str().ok_or_else(|| sc_cli::Error::Input("bad genesis hash".into()))?;
     parse_hash(hex).map_err(|e| sc_cli::Error::Input(e.into()))
 }
 
-fn fetch_account_nonce(url: &str, account: AccountId20) -> Result<u32, sc_cli::Error> {
+pub(crate) fn fetch_account_nonce(url: &str, account: AccountId20) -> Result<u32, sc_cli::Error> {
     let params = hex::encode(account.encode());
     let hex_params = format!("0x{}", params);
     let result = rpc_call(
@@ -138,7 +168,11 @@ fn parse_hash(hex: &str) -> Result<Hash, String> {
     Ok(Hash::from(H256::from(bytes)))
 }
 
-fn rpc_call(url: &str, method: &str, params: serde_json::Value) -> Result<serde_json::Value, sc_cli::Error> {
+pub(crate) fn rpc_call(
+    url: &str,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, sc_cli::Error> {
     let body = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,

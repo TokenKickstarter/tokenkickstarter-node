@@ -31,6 +31,7 @@ pallet-grandpa = { workspace = true }
 pallet-session = { workspace = true }
 pallet-staking = { workspace = true }
 pallet-sudo = { workspace = true }
+pallet-multisig = { workspace = true }
 pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 pallet-treasury = { workspace = true }
@@ -98,6 +99,7 @@ std = [
     "pallet-session/std",
     "pallet-staking/std",
     "pallet-sudo/std",
+    "pallet-multisig/std",
     "pallet-timestamp/std",
     "pallet-transaction-payment/std",
     "pallet-treasury/std",

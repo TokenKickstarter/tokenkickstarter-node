@@ -2,12 +2,14 @@
 
 use codec::Encode;
 use fp_account::AccountId20;
-use sp_core::{ecdsa, Pair};
+use sp_core::ecdsa;
 use sp_runtime::{
     generic::{Era, SignedPayload},
     traits::Block as BlockT,
 };
-use tks_runtime::{Hash, RuntimeCall, Signature, SignedExtra, UncheckedExtrinsic};
+use tks_runtime::{Hash, RuntimeCall, SignedExtra, UncheckedExtrinsic};
+
+use crate::ethereum_sign::sign_ethereum_payload;
 
 type Block = tks_runtime::Block;
 
@@ -15,10 +17,10 @@ type Block = tks_runtime::Block;
 pub fn encode_signed_extrinsic(
     call: RuntimeCall,
     signer: &ecdsa::Pair,
+    account: AccountId20,
     nonce: u32,
     genesis_hash: Hash,
 ) -> Result<Vec<u8>, String> {
-    let account = AccountId20::from(signer.public());
     let extra: SignedExtra = (
         frame_system::CheckNonZeroSender::<tks_runtime::Runtime>::new(),
         frame_system::CheckSpecVersion::<tks_runtime::Runtime>::new(),
@@ -45,8 +47,7 @@ pub fn encode_signed_extrinsic(
         ),
     );
 
-    let ecdsa_sig = raw_payload.using_encoded(|payload| signer.sign(payload));
-    let signature = Signature::new(ecdsa_sig);
+    let signature = raw_payload.using_encoded(|payload| sign_ethereum_payload(signer, payload));
     let ext = UncheckedExtrinsic::new_signed(call, account, signature, extra);
     Ok(ext.encode())
 }

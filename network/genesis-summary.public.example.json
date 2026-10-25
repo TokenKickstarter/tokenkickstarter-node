@@ -1,0 +1,24 @@
+{
+  "comment": "Example shape only — your addresses come from production-keys/genesis-summary.json after offline bootstrap.",
+  "genesis_hash": "0xd6c706533a997bfb0b97de3f4d5eb83c1ab6f6eab7983e23ff273fcabe7ac43b",
+  "chain_name": "TKS Network",
+  "spec_version": 411,
+  "genesis_sudo_multisig": "0x1af24cf357ddbb9434522984dcd540b40bd25ebd",
+  "sudo_threshold": 2,
+  "sudo_members": [
+    "0x03e7acfccc4b7eacfc43c834d7cdd5349196f0de",
+    "0x03642cad8bd50c5dc48dd44661fda12de789507d",
+    "0x032d92e14fec0aa76bb4b1e901adb982405062ec"
+  ],
+  "validator_stash": [
+    "0x02a7c7d31b22423ccdb1c0405b7fa63a1c6d8f19",
+    "0x02a2e94e0d69663a66ac7cf46f4253fd7f15f746"
+  ],
+  "cipher_accounts": [
+    "0x02a7c7d31b22423ccdb1c0405b7fa63a1c6d8f19",
+    "0x02a2e94e0d69663a66ac7cf46f4253fd7f15f746"
+  ],
+  "shard_validators_at_genesis": 2,
+  "legacy_alice_balance": "0",
+  "legacy_bob_balance": "0"
+}

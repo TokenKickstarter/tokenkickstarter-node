@@ -14,6 +14,8 @@ use sc_service::{error::Error as ServiceError, Configuration, TaskManager, WarpS
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
+use sp_api::{Core, ProvideRuntimeApi};
+use sp_blockchain::HeaderBackend;
 use sp_core::Pair;
 use sp_runtime::traits::Block as BlockT;
 
@@ -195,6 +197,7 @@ pub fn new_partial(
 /// Embedded Cipher relay + shard executor settings.
 #[derive(Clone, Debug)]
 pub struct CipherStackConfig {
+    pub disable_cipher_stack: bool,
     pub enable_relay: bool,
     pub relay_port: u16,
     pub enable_shard_executor: bool,
@@ -423,6 +426,8 @@ pub fn new_full(
         })
     };
 
+    let chain_name = config.chain_spec.name().to_string();
+
     let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
         network: network.clone(),
         client: client.clone(),
@@ -526,6 +531,39 @@ pub fn new_full(
     let da_dir = cipher_base.join("da");
     let anchors_dir = cipher_base.join("anchors");
 
+    if cipher.disable_cipher_stack {
+        return Ok(task_manager);
+    }
+
+    let cipher_build_info: Option<Arc<cipher_relay::ChainBuildInfo>> = {
+        let at = client.info().best_hash;
+        let genesis_hash = client
+            .block_hash(0u32.into())
+            .ok()
+            .flatten()
+            .map(|h| format!("{h:?}"))
+            .unwrap_or_else(|| "0x0".into());
+        let spec_version = client
+            .runtime_api()
+            .version(at)
+            .map(|v| v.spec_version)
+            .unwrap_or(0);
+        Some(Arc::new(cipher_relay::ChainBuildInfo {
+            node_version: env!("CARGO_PKG_VERSION").into(),
+            spec_version,
+            chain_name: chain_name.clone(),
+            genesis_hash,
+        }))
+    };
+    let shard_build_info = cipher_build_info.as_ref().map(|info| {
+        Arc::new(cipher_shard_executor::ChainBuildInfo {
+            node_version: info.node_version.clone(),
+            spec_version: info.spec_version,
+            chain_name: info.chain_name.clone(),
+            genesis_hash: info.genesis_hash.clone(),
+        })
+    });
+
     let spawn = task_manager.spawn_handle();
     let shard_epoch = crate::cipher_epoch::new_epoch_handle(cipher.shard_epoch);
     crate::cipher_epoch::spawn_epoch_sync(spawn.clone(), client.clone(), shard_epoch.clone());
@@ -552,6 +590,7 @@ pub fn new_full(
             da_dir,
             anchors_dir: anchors_dir_for_executor,
             hybrid: hybrid.clone(),
+            build_info: shard_build_info.clone(),
         };
         task_manager.spawn_essential_handle().spawn(
             "cipher-shard-executor",
@@ -567,13 +606,15 @@ pub fn new_full(
             if let Some(path) = cipher.anchor_seed_file.clone() {
                 match std::fs::read_to_string(&path) {
                     Ok(seed) => {
+                        let seed_trim = seed.trim().to_string();
                         let pair =
-                            sp_core::ecdsa::Pair::from_legacy_string(seed.trim(), None);
+                            sp_core::ecdsa::Pair::from_legacy_string(&seed_trim, None);
                         crate::cipher_anchor::spawn_anchor_submitter(
                             spawn.clone(),
                             client.clone(),
                             transaction_pool.clone(),
                             anchors_dir.clone(),
+                            seed_trim,
                             pair,
                         );
                     }
@@ -614,6 +655,7 @@ pub fn new_full(
                 chain_rpc_url: Some(chain_rpc_url),
                 hyperswarm_bootnodes: cipher_relay.hyperswarm_bootnodes.clone(),
                 hyperswarm_region: Some(cipher_relay.hyperswarm_region.clone()),
+                build_info: cipher_build_info.clone(),
             };
             if let Err(e) = cipher_relay::run_relay_server_with(relay_cfg).await {
                 log::error!("Cipher relay exited with error: {e:?}");

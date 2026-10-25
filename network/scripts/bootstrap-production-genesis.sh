@@ -4,9 +4,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT_DIR="$ROOT/network/production-keys"
-SPEC_JSON="$ROOT/network/tks-network-spec.json"
-RAW_JSON="$ROOT/network/tks-network-spec-raw.json"
 NODE="$ROOT/target/release/tks-chain-node"
+INPUT_EXAMPLE="$ROOT/network/production-genesis-input.example.json"
+INPUT="$ROOT/network/production-genesis-input.json"
 
 mkdir -p "$OUT_DIR"
 chmod 700 "$OUT_DIR"
@@ -16,38 +16,58 @@ if [[ ! -x "$NODE" ]]; then
   exit 1
 fi
 
-echo ">> Generating validator 1 keys (Aura/GRANDPA + ECDSA anchor account)..."
-V1_AURA=$("$NODE" key generate --scheme Sr25519 --output-type json)
-V1_GRAN=$("$NODE" key generate --scheme Ed25519 --output-type json)
-V1_ECDSA=$("$NODE" key generate --scheme Ecdsa --output-type json)
+if [[ ! -f "$INPUT" ]]; then
+  cp "$INPUT_EXAMPLE" "$INPUT"
+  echo "Created $INPUT — edit allocations/endpoints, then re-run this script."
+fi
 
-echo ">> Generating validator 2 keys..."
-V2_AURA=$("$NODE" key generate --scheme Sr25519 --output-type json)
-V2_GRAN=$("$NODE" key generate --scheme Ed25519 --output-type json)
+MEMBERS="$(python3 -c "import json; print(json.load(open('$INPUT'))['sudo_multisig_members'])")"
 
-echo "$V1_AURA" > "$OUT_DIR/validator1-aura.json"
-echo "$V1_GRAN" > "$OUT_DIR/validator1-grandpa.json"
-echo "$V1_ECDSA" > "$OUT_DIR/validator1-ecdsa.json"
-echo "$V2_AURA" > "$OUT_DIR/validator2-aura.json"
-echo "$V2_GRAN" > "$OUT_DIR/validator2-grandpa.json"
+echo ">> Validator 1 (Aura + GRANDPA + ECDSA stash/cipher)..."
+echo "$("$NODE" key generate --scheme Sr25519 --output-type json)" > "$OUT_DIR/validator1-aura.json"
+echo "$("$NODE" key generate --scheme Ed25519 --output-type json)" > "$OUT_DIR/validator1-grandpa.json"
+echo "$("$NODE" key generate --scheme Ecdsa --output-type json)" > "$OUT_DIR/validator1-ecdsa.json"
 
-V1_ECDSA_SEED=$(echo "$V1_ECDSA" | python3 -c "import json,sys; print(json.load(sys.stdin)['secretSeed'])")
-echo "$V1_ECDSA_SEED" > "$OUT_DIR/cipher-anchor-seed.txt"
+echo ">> Validator 2..."
+echo "$("$NODE" key generate --scheme Sr25519 --output-type json)" > "$OUT_DIR/validator2-aura.json"
+echo "$("$NODE" key generate --scheme Ed25519 --output-type json)" > "$OUT_DIR/validator2-grandpa.json"
+echo "$("$NODE" key generate --scheme Ecdsa --output-type json)" > "$OUT_DIR/validator2-ecdsa.json"
+
+V1_SEED="$(python3 -c "import json; print(json.load(open('$OUT_DIR/validator1-ecdsa.json'))['secretPhrase'])")"
+printf '%s\n' "$V1_SEED" > "$OUT_DIR/cipher-anchor-seed.txt"
 chmod 600 "$OUT_DIR/cipher-anchor-seed.txt"
 
-cp "$ROOT/network/tks-network-spec.template.json" "$OUT_DIR/tks-network-spec.template.json"
+echo ">> Sudo multisig members ($MEMBERS)..."
+for i in $(seq 1 "$MEMBERS"); do
+  echo "$("$NODE" key generate --scheme Ecdsa --output-type json)" > "$OUT_DIR/sudo-member${i}.json"
+done
 
-cat > "$OUT_DIR/README.txt" <<EOF
+echo ">> Treasury / allocation keys..."
+for label in team bridge ecosystem treasury validators public_sale airdrop; do
+  echo "$("$NODE" key generate --scheme Ecdsa --output-type json)" > "$OUT_DIR/treasury-${label}.json"
+done
+
+echo ">> Assembling tks-network-spec.json..."
+chmod +x "$ROOT/network/scripts/assemble-tks-network-spec.sh"
+"$ROOT/network/scripts/assemble-tks-network-spec.sh"
+
+echo ">> Building raw chainspec..."
+chmod +x "$ROOT/network/scripts/build-tks-network-spec.sh"
+"$ROOT/network/scripts/build-tks-network-spec.sh"
+
+cat > "$OUT_DIR/README.txt" <<'EOF'
 Production keys — NEVER commit this directory.
 
-Next steps:
-1. Edit network/production-genesis-input.json (sudo, treasury, validator stashes).
-2. Run: ./network/scripts/build-tks-network-spec.sh
-3. Deploy with --chain tks-network-spec-raw.json (ChainType Live, name TKS Network).
-4. Mount cipher-anchor-seed.txt: --cipher-anchor-seed-file=/path/cipher-anchor-seed.txt
-5. Inject Aura/GRANDPA seeds via local RPC only; set session keys on-chain.
-6. Runtime upgrade to spec 410+ if migrating an existing chain.
+Artifacts:
+  cipher-anchor-seed.txt     — validator1 HyperSwarm / post_anchor signer
+  genesis-summary.json       — public addresses (safe to copy for ops runbooks)
+  ../tks-network-spec.json   — human-readable Live spec (TKS Network)
+  ../tks-network-spec-raw.json — deploy with docker --chain /path/to/raw
+
+Sudo: genesis uses pallet-multisig account (see genesis-summary.json).
+Dispatch sudo via Multisig.as_multi wrapping Sudo.sudo(call).
+
+Wipe old chain data on every validator/fullnode before starting new genesis.
 EOF
 
-echo ">> Keys written under $OUT_DIR"
-echo ">> Complete allocation in production-genesis-input.json then run build-tks-network-spec.sh"
+echo ">> Done. Review network/production-keys/genesis-summary.json and raw spec hash before VPS deploy."

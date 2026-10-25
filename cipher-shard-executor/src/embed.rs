@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use cipher_hybrid::HybridController;
 
+use crate::build_info::SharedChainBuildInfo;
 use crate::engine::new_shared_engine;
 use crate::multi_engine::new_shared_multi_engine;
 use crate::server;
@@ -24,6 +25,7 @@ pub struct EmbeddedExecutorConfig {
     pub anchors_dir: PathBuf,
     /// Adaptive 1k → 500k throughput (multi-shard batching).
     pub hybrid: Option<Arc<HybridController>>,
+    pub build_info: Option<SharedChainBuildInfo>,
 }
 
 /// Starts ingest server and background batch sealing. Runs until the HTTP server exits.
@@ -66,7 +68,7 @@ pub async fn run_embedded(cfg: EmbeddedExecutorConfig) -> Result<(), String> {
             cfg.port,
         );
 
-        return server::run_http_ingest_hybrid(cfg.port, multi, hybrid).await;
+        return server::run_http_ingest_hybrid(cfg.port, multi, hybrid, cfg.build_info.clone()).await;
     }
 
     let engine = new_shared_engine();

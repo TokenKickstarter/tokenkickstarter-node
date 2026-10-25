@@ -4,6 +4,28 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.12
+
+### Runtime **spec 411**
+
+- `pallet-multisig` for production sudo (2-of-N derived account).
+- Production genesis tooling: `bootstrap-production-genesis.sh`, Live **TKS Network** spec, HyperSwarm validators at genesis.
+
+### Fixes
+
+- **AccountId20 extrinsics:** Keccak-256 signing for `EthereumSignature` (fixes `bad signature` on `cipher-register-shard` and anchor auto-post).
+- **AccountId20 identity:** Cipher/signer accounts match genesis `get_account_id_from_seed` (not raw `pair.public()`).
+
+### Ops
+
+- `cipher-register-shard` requires `--seed-file` (no default `//Alice`).
+- `--disable-cipher-stack` for validator-only containers.
+- Cipher relay + shard: **GET `/version`** (node version, spec version, chain name, genesis hash).
+- `production multisig-sudo-force-rotate` — smoke test for multisig → sudo dispatch.
+- Release CI rejects `production-keys` / secret material in artifacts.
+
+---
+
 ## v0.1.11
 
 ### Ops
