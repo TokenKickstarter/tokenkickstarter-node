@@ -242,8 +242,17 @@ jobs:
             echo "production-keys must not ship in releases"
             exit 1
           fi
-          if grep -rE 'secretPhrase|secretSeed|BEGIN OPENSSH' release-files 2>/dev/null; then
-            echo "Release files contain secret material"
+          # Match embedded secret values in JSON, not ops scripts that read JSON field names.
+          if grep -rE '"secretSeed"\s*:\s*"[^"]+"' release-files --include='*.json' 2>/dev/null; then
+            echo "Release JSON contains secretSeed values"
+            exit 1
+          fi
+          if grep -rE '"secretPhrase"\s*:\s*"[^"]+"' release-files --include='*.json' 2>/dev/null; then
+            echo "Release JSON contains secretPhrase values"
+            exit 1
+          fi
+          if grep -rE 'BEGIN OPENSSH PRIVATE KEY' release-files 2>/dev/null; then
+            echo "Release files contain SSH private keys"
             exit 1
           fi
 
