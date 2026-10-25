@@ -43,6 +43,7 @@ async fn main() -> Result<(), String> {
         da_dir: args.da_dir,
         anchors_dir: args.anchors_dir,
         hybrid,
+        build_info: None,
     })
     .await
 }
