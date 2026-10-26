@@ -3,10 +3,11 @@
 //! Defines the genesis state for the TKS blockchain.
 //! Includes NPoS staking, session keys, and treasury configuration.
 
+use fp_account::AccountId20 as FrontierAccountId20;
 use sc_service::ChainType;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
-use sp_core::{sr25519, ByteArray, Pair, Public, H160};
+use sp_core::{ecdsa, sr25519, ByteArray, Pair, Public, H160};
 use tks_runtime::{AccountId, Balance, SessionKeys, TKS};
 
 /// Specialized `ChainSpec` for TKS (no extensions).
@@ -27,8 +28,11 @@ pub fn hex_to_account(hex: &str) -> AccountId {
     AccountId::from(data)
 }
 
-/// Generate an account ID from seed (Mapping Substrate seeds to standard Ethereum H160).
-/// Runtime `AccountId20` for an ECDSA secret URI (must match genesis / staking accounts).
+/// Map a production/dev seed phrase to runtime `AccountId20` (standard Ethereum H160).
+///
+/// Must match `fp_account::AccountId20` / `EthereumSignature` verification (Keccak-256 of the
+/// uncompressed secp256k1 public key, last 20 bytes). Do **not** use the first 20 bytes of the
+/// compressed public key — that address cannot be signed for with any real key.
 pub fn get_account_id_from_seed(seed: &str) -> AccountId {
     match seed {
         "Alice" => hex_to_account("0xe04cc55ebee1cbce552f250e85c57b70b2e2625b"),
@@ -38,10 +42,8 @@ pub fn get_account_id_from_seed(seed: &str) -> AccountId {
         "Eve" => hex_to_account("0x362855f7c9c5c9d00a84157cdefe889fea436741"), 
         "Ferdie" => hex_to_account("0x0c8a57c77e50afc224f06caeeca12c46178b37c7"),
         _ => {
-            let pubkey = get_from_seed::<sp_core::ecdsa::Public>(seed);
-            let mut data = [0u8; 20];
-            data.copy_from_slice(&pubkey.to_raw_vec()[0..20]);
-            AccountId::from(data)
+            let pubkey = get_from_seed::<ecdsa::Public>(seed);
+            AccountId::from(FrontierAccountId20::from(pubkey))
         }
     }
 }

@@ -22,17 +22,15 @@ if [[ ! -x "$NODE" || ! -f "$RAW" || ! -d "$KEYS" ]]; then
   exit 1
 fi
 
-inject_keys() {
-  local rpc="$1" aura="$2" gran="$3"
-  local aura_seed aura_pub gran_seed gran_pub
-  aura_seed=$(python3 -c "import json; print(json.load(open('$aura'))['secretSeed'])")
-  aura_pub=$(python3 -c "import json; print(json.load(open('$aura'))['publicKey'])")
-  gran_seed=$(python3 -c "import json; print(json.load(open('$gran'))['secretSeed'])")
-  gran_pub=$(python3 -c "import json; print(json.load(open('$gran'))['publicKey'])")
-  curl -s "$rpc" -H 'Content-Type: application/json' \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"author_insertKey\",\"params\":[\"aura\",\"$aura_seed\",\"$aura_pub\"]}" >/dev/null
-  curl -s "$rpc" -H 'Content-Type: application/json' \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"author_insertKey\",\"params\":[\"gran\",\"$gran_seed\",\"$gran_pub\"]}" >/dev/null
+install_keys() {
+  local base="$1" aura="$2" gran="$3"
+  local aura_phrase gran_phrase
+  aura_phrase=$(python3 -c "import json; print(json.load(open('$aura'))['secretPhrase'])")
+  gran_phrase=$(python3 -c "import json; print(json.load(open('$gran'))['secretPhrase'])")
+  "$NODE" key insert --base-path "$base" --chain "$RAW" \
+    --key-type aura --scheme Sr25519 --suri "$aura_phrase" >/dev/null
+  "$NODE" key insert --base-path "$base" --chain "$RAW" \
+    --key-type gran --scheme Ed25519 --suri "$gran_phrase" >/dev/null
 }
 
 rpc() {
@@ -49,18 +47,20 @@ BOOT="/ip4/127.0.0.1/tcp/30334/p2p/${PEER1}"
 
 CIPHER_OFF=(--disable-cipher-stack)
 
+echo ">> Installing session keys (key insert — required for GRANDPA)..."
+install_keys "$BASE/v1" "$KEYS/validator1-aura.json" "$KEYS/validator1-grandpa.json"
+install_keys "$BASE/v2" "$KEYS/validator2-aura.json" "$KEYS/validator2-grandpa.json"
+
 echo ">> Starting validators + fullnode..."
 "$NODE" --chain "$RAW" --base-path "$BASE/v1" --validator --node-key-file "$BASE/v1/node-key" --rpc-port 9945 \
   --rpc-external --rpc-cors all --rpc-methods Unsafe --port 30334 --prometheus-port 9615 --name smoke-v1 \
   "${CIPHER_OFF[@]}" &
 sleep 3
-inject_keys "$RPC_V1" "$KEYS/validator1-aura.json" "$KEYS/validator1-grandpa.json"
 
 "$NODE" --chain "$RAW" --base-path "$BASE/v2" --validator --node-key-file "$BASE/v2/node-key" --rpc-port 9946 \
   --rpc-external --rpc-cors all --rpc-methods Unsafe --port 30335 --prometheus-port 9616 --name smoke-v2 \
   --bootnodes "$BOOT" "${CIPHER_OFF[@]}" &
 sleep 3
-inject_keys "$RPC_V2" "$KEYS/validator2-aura.json" "$KEYS/validator2-grandpa.json"
 
 "$NODE" --chain "$RAW" --base-path "$BASE/fn" --node-key-file "$BASE/fn/node-key" --rpc-port 9947 --rpc-external --rpc-cors all \
   --rpc-methods Safe --port 30336 --prometheus-port 9617 --name smoke-fullnode --bootnodes "$BOOT" \
@@ -102,9 +102,9 @@ python3 - <<'PY' "$chain" "$spec" "$swarm"
 import json, sys
 chain, spec, swarm = map(json.loads, sys.argv[1:4])
 assert "TKS Network" in chain.get("result",""), chain
-assert spec["result"]["specVersion"] == 411, spec
+assert spec["result"]["specVersion"] == 412, spec
 assert len(swarm.get("result",[])) == 2, swarm
-print("OK: chain name, spec 411, 2 swarm validators")
+print("OK: chain name, spec 412, 2 swarm validators")
 PY
 
 echo ">> Multisig sudo force_rotate..."

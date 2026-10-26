@@ -4,6 +4,26 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.13
+
+### Runtime **spec 412** — **new genesis required**
+
+Production mainnet launched on v0.1.12 must **wipe and redeploy** with this release. Balances on v0.1.12 at `0x02…` / `0x03…` “addresses” (truncated compressed pubkeys) **cannot be signed for**; they are not standard Ethereum H160s.
+
+### Fixes
+
+- **`get_account_id_from_seed`:** derive H160 via `fp_account::AccountId20` (Keccak-256 of uncompressed secp256k1 pubkey), matching `EthereumSignature` verification and MetaMask.
+- Regenerated **`network/tks-network-spec.json`** and **`tks-network-spec-raw.json`** from existing `production-keys/` (same mnemonics, **correct** recipient addresses).
+
+### Ops
+
+- Re-assemble after key changes: `network/scripts/assemble-tks-network-spec.sh` then `build-tks-network-spec.sh`.
+- Audit: `network/scripts/audit-genesis-addresses.py`.
+- Coordinate validator **chain-spec replace + purge** on VPS; update `genesis-summary.json` / session keys as needed.
+- **Do not** upgrade v0.1.12 in place — genesis hash and all funded H160s change.
+
+---
+
 ## v0.1.12
 
 ### Runtime **spec 411**

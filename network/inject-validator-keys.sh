@@ -33,7 +33,9 @@ echo "   Seed:   $GRAN_SEED"
 echo ""
 
 # ── Step 2: Inject into node keystore ───────────────────────
-echo ">> Injecting Aura key into node..."
+# Prefer offline install (GRANDPA needs mnemonic in keystore, not 0x secretSeed):
+#   ./network/scripts/install-production-validator-keys.sh /data 1
+echo ">> Injecting Aura key into node (dev only — use install-production-validator-keys.sh for production)..."
 curl -s -X POST "$RPC_URL" \
   -H "Content-Type: application/json" \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"author_insertKey\",\"params\":[\"aura\",\"$AURA_SEED\",\"$AURA_PUB\"],\"id\":1}" \
@@ -45,6 +47,9 @@ curl -s -X POST "$RPC_URL" \
   -H "Content-Type: application/json" \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"author_insertKey\",\"params\":[\"gran\",\"$GRAN_SEED\",\"$GRAN_PUB\"],\"id\":2}" \
   | python3 -m json.tool
+echo ""
+echo "WARNING: author_insertKey with hex secretSeed breaks GRANDPA finality."
+echo "         Use: network/scripts/install-production-validator-keys.sh <base-path> <1|2>"
 
 echo ""
 echo "============================================"
