@@ -121,6 +121,7 @@ pub fn run() -> sc_cli::Result<()> {
             crate::genesis_util::ProductionCmd::AccountId20(c) => c.run(),
             crate::genesis_util::ProductionCmd::MultisigAccount(c) => c.run(),
             crate::genesis_util::ProductionCmd::MultisigSudoForceRotate(c) => c.run(),
+            crate::genesis_util::ProductionCmd::FundH160(c) => c.run(),
         },
 
         Some(Subcommand::BuildSpec(cmd)) => {

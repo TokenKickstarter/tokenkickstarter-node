@@ -10,6 +10,8 @@ pub enum ProductionCmd {
     MultisigAccount(MultisigAccountCmd),
     /// Smoke test: 2-of-3 multisig dispatches `sudo(force_rotate)`.
     MultisigSudoForceRotate(crate::multisig_sudo_cmd::MultisigSudoForceRotateCmd),
+    /// Send native TKS to an H160 via `Balances.transfer_allow_death`.
+    FundH160(crate::production_fund_cmd::ProductionFundH160Cmd),
 }
 use fp_account::AccountId20;
 use sp_core::hashing::blake2_256;

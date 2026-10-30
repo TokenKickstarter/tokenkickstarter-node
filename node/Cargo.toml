@@ -1,6 +1,6 @@
 [package]
 name = "tks-chain-node"
-version = "0.1.17"
+version = "0.1.18"
 description = "TKS (TokenKickstarter) Substrate node — the blockchain binary anyone can run"
 authors.workspace = true
 edition.workspace = true
@@ -28,6 +28,7 @@ pallet-hyperswarm-anchor = { path = "../pallets/pallet-hyperswarm-anchor", defau
 pallet-multisig = { workspace = true, default-features = false, features = ["std"] }
 pallet-sudo = { workspace = true, default-features = false, features = ["std"] }
 pallet-shard-registry = { path = "../pallets/pallet-shard-registry", default-features = false, features = ["std"] }
+pallet-balances = { workspace = true, default-features = false, features = ["std"] }
 frame-support = { workspace = true, default-features = false, features = ["std"] }
 fp-self-contained = { workspace = true, features = ["std"] }
 frame-system = { workspace = true, default-features = false, features = ["std"] }

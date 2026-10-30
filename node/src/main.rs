@@ -11,6 +11,7 @@ mod ethereum_sign;
 mod extrinsic_sign;
 mod genesis_util;
 mod multisig_sudo_cmd;
+mod production_fund_cmd;
 mod shard_setup_cmd;
 mod hyperswarm_rpc;
 mod rpc;
