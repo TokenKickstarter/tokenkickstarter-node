@@ -28,14 +28,14 @@ jobs:
             binary_name: tks-chain-node
             archive_ext: tar.gz
 
-          # macOS — macos-14 is native arm64, macos-13 is native x86_64
-          - os: macos-14
+          # macOS — macos-15 (arm64 host); Intel macOS via cross-target from same runner
+          - os: macos-15
             target: aarch64-apple-darwin
             artifact_name: tks-chain-node-macos-arm64
             binary_name: tks-chain-node
             archive_ext: tar.gz
 
-          - os: macos-13
+          - os: macos-15
             target: x86_64-apple-darwin
             artifact_name: tks-chain-node-macos-x86_64
             binary_name: tks-chain-node
