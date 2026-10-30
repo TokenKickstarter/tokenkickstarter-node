@@ -1,11 +1,10 @@
 # Genesis allocation (v0.1.17 regen — public addresses)
 
-**New mainnet genesis** shipped in release **v0.1.17** (`tks-network-spec-raw.json` + `.sha256`). After deploy, verify genesis hash:
+**New mainnet genesis** shipped in release **v0.1.17** (`tks-network-spec-raw.json` + `.sha256`).
 
-```bash
-curl -s "$RPC" -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"chain_getBlockHash","params":[0]}'
-```
+Genesis hash: **`0x28a554eb58356946b3ac7ce61fa1562cbda2dd1171ee8c7719140e0e33a2e31c`**
+
+SHA-256 (raw spec): **`d83bc9d26c46561586b59821633559f92cadfcefc489eb64d7832a00b252a49e`**
 
 Full bucket table: [`GENESIS-BALANCES.md`](./GENESIS-BALANCES.md).
 

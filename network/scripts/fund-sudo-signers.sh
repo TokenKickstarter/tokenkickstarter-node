@@ -26,6 +26,7 @@ python3 <<PY
 import json, os, subprocess, urllib.request
 from eth_account import Account
 
+Account.enable_unaudited_hdwallet_features()
 rpc = os.environ["RPC"]
 seed_path = os.environ["FUND_SEED_FILE"]
 amount_wei = int(float(os.environ["AMOUNT_TKS"]) * 10**18)
