@@ -24,7 +24,7 @@ pub fn apply_burst_pool_scaling(
         scaled_kbytes * 1024,
         params.tx_ban_seconds,
         params.pool_type.into(),
-        config.role.is_dev(),
+        config.dev_key_seed.is_some(),
     );
 
     log::info!(

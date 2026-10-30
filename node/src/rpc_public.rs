@@ -12,7 +12,7 @@ const HIDDEN_SYSTEM_METHODS: &[&str] = &[
 /// Remove methods that expose P2P identity or internal listen addresses.
 pub fn strip_sensitive_system_methods(io: &mut RpcModule<()>) {
     for name in HIDDEN_SYSTEM_METHODS {
-        if io.remove_method(*name).is_ok() {
+        if io.remove_method(*name).is_some() {
             log::info!(target: "rpc", "Public RPC: disabled `{name}`");
         }
     }

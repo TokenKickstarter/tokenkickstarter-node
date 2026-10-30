@@ -223,7 +223,7 @@ pub fn run() -> sc_cli::Result<()> {
             };
             let runner = cli.create_runner(&cli.run)?;
             let pool_future_divisor = cli.pool_future_divisor;
-            let pool_params = cli.run.transaction_pool.clone();
+            let pool_params = cli.run.pool_config.clone();
             runner.run_node_until_exit(move |mut config| async move {
                 crate::tx_pool::apply_burst_pool_scaling(
                     &mut config,
