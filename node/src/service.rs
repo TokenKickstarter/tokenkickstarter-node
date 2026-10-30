@@ -435,11 +435,11 @@ pub fn new_full(
     let chain_name = config.chain_spec.name().to_string();
 
     if cipher.rpc_hide_node_identity {
-        log::warn!(
+        // Read in patched `sc-service` `gen_rpc_module` (after all RPC merges).
+        std::env::set_var("TKS_RPC_HIDE_NODE_IDENTITY", "1");
+        log::info!(
             target: "rpc",
-            "--rpc-hide-node-identity: Substrate merges sc_rpc::system after the node RPC module; \
-             strip in create_full cannot remove system_localPeerId. Block those methods at the \
-             reverse proxy (see network/nginx/rpc-deny-node-identity.conf)."
+            "--rpc-hide-node-identity: disabling system_localPeerId, listen addresses, and raw peer RPC (HTTP + WS)"
         );
     }
 

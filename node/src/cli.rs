@@ -83,7 +83,7 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub ethereum_dev_signer: bool,
 
-    /// Hide `system_localPeerId`, listen addresses, and raw peer lists on JSON-RPC.
+    /// Hide `system_localPeerId`, listen addresses, and raw peer lists on JSON-RPC (HTTP + WebSocket).
     #[arg(long, default_value_t = false)]
     pub rpc_hide_node_identity: bool,
 

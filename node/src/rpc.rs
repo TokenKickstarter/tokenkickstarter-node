@@ -220,9 +220,7 @@ where
 
     io.merge(Web3::new(client).into_rpc())?;
 
-    if hide_node_identity {
-        crate::rpc_public::strip_sensitive_system_methods(&mut io);
-    }
+    let _ = hide_node_identity; // stripping runs in patched `gen_rpc_module` via env flag
 
     Ok(io)
 }

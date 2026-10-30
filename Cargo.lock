@@ -9005,7 +9005,6 @@ dependencies = [
 [[package]]
 name = "sc-service"
 version = "0.56.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=stable2512#bf386d3393866125bee64afa8c3f26ee7c272e52"
 dependencies = [
  "async-trait",
  "directories",
@@ -11049,7 +11048,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tks-chain-node"
-version = "0.1.14"
+version = "0.1.16"
 dependencies = [
  "cipher-hybrid",
  "cipher-relay",

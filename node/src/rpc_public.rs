@@ -1,4 +1,4 @@
-//! Hide node-local Substrate RPC methods on Internet-facing endpoints.
+//! Identity RPC method names (stripped in patched `sc-service` when `--rpc-hide-node-identity` is set).
 
 use jsonrpsee::RpcModule;
 

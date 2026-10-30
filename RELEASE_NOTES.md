@@ -4,6 +4,23 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.16
+
+Public RPC identity hardening at the **node** (HTTP + WebSocket). **Runtime spec 412 unchanged.**
+
+### Fixes
+
+- **`--rpc-hide-node-identity` works end-to-end:** Patched `sc-service` `gen_rpc_module` removes `system_localPeerId`, `system_localListenAddresses`, `system_peers`, and `system_unstable_networkState` after all RPC modules are merged (no nginx Lua required for audits).
+- Ops: public fullnodes should keep `--rpc-hide-node-identity`; reverse-proxy filtering is optional defense-in-depth.
+
+### Deploy
+
+1. Upgrade binary to **v0.1.16**, rebuild Docker, `docker compose up -d --force-recreate` on fullnode.
+2. Fullnode Cmd must include `--rpc-hide-node-identity` (see `network/docker-compose-live.yml`).
+3. DNS: single **A** record for `rpc` → VPS; grey or orange cloud both OK once SSL vhost serves `rpc` on 443.
+
+---
+
 ## v0.1.15
 
 R4 audit follow-up (node + docs). **Runtime spec 412 unchanged** unless you regen genesis for multisig sudo fix.

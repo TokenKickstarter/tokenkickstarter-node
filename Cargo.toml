@@ -135,5 +135,8 @@ clap    = { version = "4.5", features = ["derive"] }
 futures = "0.3"
 log     = { version = "0.4", default-features = false }
 
+[patch."https://github.com/paritytech/polkadot-sdk"]
+sc-service = { path = "patch/sc-service" }
+
 [profile.release]
 panic = "unwind"

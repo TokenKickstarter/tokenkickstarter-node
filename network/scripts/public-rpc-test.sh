@@ -77,7 +77,7 @@ check_ok "system_version" "$r" "
 import json,sys
 d=json.load(sys.stdin)
 v=d['result']
-assert v.startswith('0.1.13')
+assert v.startswith('0.1.15') or v.startswith('0.1.16')
 print(v)
 "
 
@@ -103,13 +103,12 @@ print(p)
 "
 
 r=$(rpc system_localPeerId)
-if echo "$r" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'result' in d or 'error' in d" 2>/dev/null; then
-  if echo "$r" | grep -q '"error"'; then
-    echo "PASS  system_localPeerId — blocked on public Safe RPC (expected)"
-    PASS=$((PASS + 1))
-  else
-    check_ok "system_localPeerId" "$r" "import json,sys; print(json.load(sys.stdin)['result'][:20])"
-  fi
+if echo "$r" | grep -q '"error"'; then
+  echo "PASS  system_localPeerId — blocked on public RPC (expected)"
+  PASS=$((PASS + 1))
+elif echo "$r" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'result' in d" 2>/dev/null; then
+  echo "FAIL  system_localPeerId — peer id exposed (enable --rpc-hide-node-identity on fullnode)"
+  FAIL=$((FAIL + 1))
 fi
 
 # ── Chain ──
