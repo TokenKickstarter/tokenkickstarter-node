@@ -434,8 +434,16 @@ pub fn new_full(
 
     let chain_name = config.chain_spec.name().to_string();
 
-    let _rpc_handlers = crate::spawn_tasks::spawn_tasks(
-        sc_service::SpawnTasksParams {
+    if cipher.rpc_hide_node_identity {
+        log::warn!(
+            target: "rpc",
+            "--rpc-hide-node-identity: Substrate merges sc_rpc::system after the node RPC module; \
+             strip in create_full cannot remove system_localPeerId. Block those methods at the \
+             reverse proxy (see network/nginx/rpc-deny-node-identity.conf)."
+        );
+    }
+
+    let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
         network: network.clone(),
         client: client.clone(),
         keystore: keystore_container.keystore(),
@@ -449,9 +457,7 @@ pub fn new_full(
         config,
         telemetry: telemetry.as_mut(),
         tracing_execute_block: None,
-        },
-        cipher.rpc_hide_node_identity,
-    )?;
+    })?;
 
     // Start Aura block authoring (if authority)
     if role.is_authority() {

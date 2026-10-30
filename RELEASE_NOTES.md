@@ -12,7 +12,7 @@ R4 audit follow-up (node + docs). **Runtime spec 412 unchanged** unless you rege
 
 - **Anchors:** `load_ecdsa_from_seed_text` now derives the signing pair with `//mnemonic` (was `from_legacy_string` → `InvalidTransaction::BadProof`). Anchor submitter uses `TransactionSource::External`.
 - **Multisig helper:** `production multisig-account` uses the same encoding as `pallet_multisig::multi_account_id` (`b"modlpy/utilisuba"` prefix). Legacy genesis `0xd0ec…` documented in [network/SUDO-MULTISIG.public.md](network/SUDO-MULTISIG.public.md).
-- **Public RPC:** `--rpc-hide-node-identity` strips `sc_rpc::system` methods **after** the full RPC module is built (v0.1.14 only removed frame methods, which never exposed `localPeerId`).
+- **Public RPC:** Documented Substrate merge order; use `network/nginx/rpc-deny-node-identity.conf` on the public reverse proxy (v0.1.14 `strip` in `create_full` did not affect `sc_rpc::system`).
 
 ### Ops
 
