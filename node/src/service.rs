@@ -434,7 +434,8 @@ pub fn new_full(
 
     let chain_name = config.chain_spec.name().to_string();
 
-    let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
+    let _rpc_handlers = crate::spawn_tasks::spawn_tasks(
+        sc_service::SpawnTasksParams {
         network: network.clone(),
         client: client.clone(),
         keystore: keystore_container.keystore(),
@@ -448,7 +449,9 @@ pub fn new_full(
         config,
         telemetry: telemetry.as_mut(),
         tracing_execute_block: None,
-    })?;
+        },
+        cipher.rpc_hide_node_identity,
+    )?;
 
     // Start Aura block authoring (if authority)
     if role.is_authority() {

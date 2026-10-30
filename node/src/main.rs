@@ -15,6 +15,7 @@ mod shard_setup_cmd;
 mod hyperswarm_rpc;
 mod rpc;
 mod rpc_public;
+mod spawn_tasks;
 mod service;
 mod tx_pool;
 

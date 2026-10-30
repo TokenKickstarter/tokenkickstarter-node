@@ -30,12 +30,24 @@ pub fn load_ecdsa_from_seed_text(raw: &str) -> Result<(ecdsa::Pair, fp_account::
         trimmed.to_string()
     };
 
-    let account = from_secret_uri(&uri);
     let pair = if uri.starts_with("//") {
-        ecdsa::Pair::from_string(&uri, None).map_err(|e| CliError::Input(format!("ecdsa URI: {e:?}")))?
-    } else {
+        ecdsa::Pair::from_string(&uri, None)
+            .map_err(|e| CliError::Input(format!("ecdsa URI: {e:?}")))?
+    } else if uri.starts_with("0x") && uri.len() >= 66 {
         ecdsa::Pair::from_legacy_string(&uri, None)
+    } else {
+        // Match `chain_spec::get_account_id_from_seed` (`//phrase` for BIP39 mnemonics).
+        ecdsa::Pair::from_string(&format!("//{uri}"), None)
+            .map_err(|e| CliError::Input(format!("ecdsa mnemonic: {e:?}")))?
     };
+    // Must match extrinsic signer ↔ on-chain AccountId20 (Keccak H160).
+    let account = from_secret_uri(if uri.starts_with("//") {
+        uri.trim_start_matches("//")
+    } else if uri.starts_with("0x") && uri.len() >= 66 {
+        uri.as_str()
+    } else {
+        uri.as_str()
+    });
 
     Ok((pair, account))
 }

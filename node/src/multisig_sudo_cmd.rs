@@ -3,7 +3,6 @@
 use codec::Encode;
 use fp_account::AccountId20;
 
-use crate::account_id20::from_secret_uri;
 use pallet_multisig::Call as MultisigCall;
 use pallet_shard_registry::Call as ShardRegistryCall;
 use pallet_sudo::Call as SudoCall;
@@ -41,11 +40,19 @@ impl MultisigSudoForceRotateCmd {
             None => None,
         };
 
-        let pair1 = ecdsa::Pair::from_legacy_string(&m1, None);
-        let pair2 = ecdsa::Pair::from_legacy_string(&m2, None);
-        let acc1 = from_secret_uri(&m1);
-        let acc2 = from_secret_uri(&m2);
-        let acc3 = m3.as_ref().map(|s| from_secret_uri(s));
+        let (pair1, acc1) = crate::ecdsa_seed::load_ecdsa_from_seed_text(&m1)
+            .map_err(|e| sc_cli::Error::Input(e.to_string()))?;
+        let (pair2, acc2) = crate::ecdsa_seed::load_ecdsa_from_seed_text(&m2)
+            .map_err(|e| sc_cli::Error::Input(e.to_string()))?;
+        let acc3 = if let Some(s) = m3.as_ref() {
+            Some(
+                crate::ecdsa_seed::load_ecdsa_from_seed_text(s)
+                    .map_err(|e| sc_cli::Error::Input(e.to_string()))?
+                    .1,
+            )
+        } else {
+            None
+        };
 
         let mut signers = vec![acc1, acc2];
         if let Some(a) = acc3 {

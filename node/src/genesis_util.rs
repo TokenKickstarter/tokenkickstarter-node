@@ -62,17 +62,33 @@ impl MultisigAccountCmd {
         accounts.sort_by(|a, b| a.0.cmp(&b.0));
         let id = multisig_account_id(&accounts, self.threshold);
         println!("0x{}", hex::encode(id.0));
+        let legacy = multisig_account_id_legacy_str_prefix(&accounts, self.threshold);
+        if legacy != id {
+            eprintln!(
+                "Note: legacy genesis helper (SCALE `&str` prefix) was 0x{} — on-chain \
+                 `sudo.key` on spec 412 may still match that until genesis regen.",
+                hex::encode(legacy.0)
+            );
+        }
         Ok(())
     }
 }
 
+/// Same as `pallet_multisig::Pallet::multi_account_id` for `AccountId20` signatories.
 pub fn multisig_account_id(signatories: &[AccountId20], threshold: u16) -> AccountId20 {
-    let entropy = blake2_256(
-        &("modlpy/utilisuba", signatories, threshold)
-            .encode(),
-    );
+    let entropy = (b"modlpy/utilisuba", signatories, threshold).using_encoded(blake2_256);
     AccountId20::decode(&mut TrailingZeroInput::new(entropy.as_ref()))
         .expect("multisig AccountId20 decodes from blake2_256; qed")
+}
+
+/// Pre-v0.1.15 bug: used `("modlpy/utilisuba", …).encode()` (compact string prefix).
+pub fn multisig_account_id_legacy_str_prefix(
+    signatories: &[AccountId20],
+    threshold: u16,
+) -> AccountId20 {
+    let entropy = blake2_256(&("modlpy/utilisuba", signatories, threshold).encode());
+    AccountId20::decode(&mut TrailingZeroInput::new(entropy.as_ref()))
+        .expect("legacy multisig AccountId20; qed")
 }
 
 fn parse_h160(hex: &str) -> Result<AccountId20, sc_cli::Error> {

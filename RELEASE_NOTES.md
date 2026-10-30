@@ -4,6 +4,22 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.15
+
+R4 audit follow-up (node + docs). **Runtime spec 412 unchanged** unless you regen genesis for multisig sudo fix.
+
+### Fixes
+
+- **Anchors:** `load_ecdsa_from_seed_text` now derives the signing pair with `//mnemonic` (was `from_legacy_string` → `InvalidTransaction::BadProof`). Anchor submitter uses `TransactionSource::External`.
+- **Multisig helper:** `production multisig-account` uses the same encoding as `pallet_multisig::multi_account_id` (`b"modlpy/utilisuba"` prefix). Legacy genesis `0xd0ec…` documented in [network/SUDO-MULTISIG.public.md](network/SUDO-MULTISIG.public.md).
+- **Public RPC:** `--rpc-hide-node-identity` strips `sc_rpc::system` methods **after** the full RPC module is built (v0.1.14 only removed frame methods, which never exposed `localPeerId`).
+
+### Ops
+
+- `network/scripts/publish-production-chainspec.sh` — pull live raw spec + SHA-256 for releases.
+
+---
+
 ## v0.1.14
 
 Audit remediation (node + ops). **No runtime spec bump** — deploy binary + Docker flags on existing spec **412** genesis.

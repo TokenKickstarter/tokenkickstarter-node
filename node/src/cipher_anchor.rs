@@ -197,7 +197,7 @@ async fn submit_post_anchor(
     let ext = UncheckedExtrinsic::new_signed(call, account, signature, extra);
 
     let hash = pool
-        .submit_one(at, TransactionSource::Local, ext)
+        .submit_one(at, TransactionSource::External, ext)
         .await
         .map_err(|e| e.to_string())?;
     Ok(hash)

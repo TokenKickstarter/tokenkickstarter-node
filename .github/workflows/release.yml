@@ -240,6 +240,13 @@ jobs:
           cp network/genesis-summary.public.example.json release-files/genesis-summary.public.example.json
           cp network/GENESIS-ALLOCATION.public.md release-files/GENESIS-ALLOCATION.public.md
           cp network/SUDO-MULTISIG.public.md release-files/SUDO-MULTISIG.public.md
+          # Live production raw spec (spec 412) when operator publishes via publish-production-chainspec.sh
+          if [ -f network/tks-network-spec-raw.json ]; then
+            cp network/tks-network-spec-raw.json release-files/tks-network-spec-raw.json
+          fi
+          if [ -f network/tks-network-spec-raw.sha256 ]; then
+            cp network/tks-network-spec-raw.sha256 release-files/tks-network-spec-raw.sha256
+          fi
           echo "Chainspec generated"
 
       - name: Reject production secrets in release bundle
