@@ -7,7 +7,6 @@ use codec::Encode;
 use cipher_shard_executor::anchor::AnchorSubmitPayload;
 use fp_account::AccountId20;
 
-use crate::account_id20::from_secret_uri;
 use frame_system_rpc_runtime_api::AccountNonceApi;
 use futures::FutureExt;
 use pallet_hyperswarm_anchor::Call as HyperSwarmAnchorCall;
@@ -34,10 +33,9 @@ pub fn spawn_anchor_submitter(
     client: Arc<FullClient>,
     pool: Arc<Pool>,
     anchors_dir: PathBuf,
-    seed: String,
     signer: ecdsa::Pair,
+    account: AccountId20,
 ) {
-    let account = from_secret_uri(&seed);
     log::info!(
         target: "cipher-anchor",
         "Auto post_anchor enabled for account {account:?}, watching {}",

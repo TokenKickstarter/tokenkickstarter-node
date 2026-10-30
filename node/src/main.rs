@@ -3,6 +3,7 @@
 mod account_id20;
 mod chain_spec;
 mod cipher_anchor;
+mod ecdsa_seed;
 mod cipher_epoch;
 mod cli;
 mod command;
@@ -13,7 +14,9 @@ mod multisig_sudo_cmd;
 mod shard_setup_cmd;
 mod hyperswarm_rpc;
 mod rpc;
+mod rpc_public;
 mod service;
+mod tx_pool;
 
 fn main() -> sc_cli::Result<()> {
     command::run()

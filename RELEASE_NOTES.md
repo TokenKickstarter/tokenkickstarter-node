@@ -4,6 +4,32 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.14
+
+Audit remediation (node + ops). **No runtime spec bump** — deploy binary + Docker flags on existing spec **412** genesis.
+
+### Fixes
+
+- **Mempool bursts:** `--pool-future-divisor` (default `10`) scales pool caps so the *future* queue matches nominal `--pool-limit` (fixes ~10×2k transfer loss). See [network/TX-POOL-AND-REORG.md](network/TX-POOL-AND-REORG.md).
+- **Anchors:** Hybrid shard executor always posts L1 anchors for the node’s `--cipher-shard-id` (was using logical shard indices 1…N → `NotShardValidator`).
+- **Anchor signer:** `--cipher-anchor-seed-file` accepts JSON `secretPhrase` / `//URI` (same as production keys).
+- **Public RPC:** `--rpc-hide-node-identity` removes `system_localPeerId`, listen addresses, and raw peer lists.
+- **Dev keys:** `EthDevSigner` off by default; use `--ethereum-dev-signer` only on dev chains.
+
+### Ops / audit docs
+
+- [network/SUDO-MULTISIG.public.md](network/SUDO-MULTISIG.public.md), [network/GENESIS-ALLOCATION.public.md](network/GENESIS-ALLOCATION.public.md), [network/SHARD-ENDPOINTS.md](network/SHARD-ENDPOINTS.md), [network/AUDIT-READ-ACCESS.md](network/AUDIT-READ-ACCESS.md)
+- Regression: `network/scripts/loadtest-20k-transfers.py`
+- Release bundle includes `tks-network-spec.template.json` (not local 127.0.0.1 testnet as production spec)
+
+### Deploy (VPS `/opt/tks-docker`)
+
+1. Upgrade binary to **v0.1.14**, rebuild images, `docker compose up -d --force-recreate`
+2. Fullnode Cmd must include: `--pool-type fork-aware --pool-future-divisor 10 --rpc-hide-node-identity`
+3. Sweep any **//Alice** balance on live chain to treasury (never fund dev H160s on mainnet)
+
+---
+
 ## v0.1.13
 
 ### Runtime **spec 412** — **new genesis required**

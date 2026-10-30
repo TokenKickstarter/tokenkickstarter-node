@@ -216,6 +216,10 @@ pub struct CipherStackConfig {
     pub hyperswarm_region: String,
     pub auto_post_anchor: bool,
     pub anchor_seed_file: Option<std::path::PathBuf>,
+    /// Enable `EthDevSigner` (well-known dev keys). Must stay off on production RPC.
+    pub enable_ethereum_dev_signer: bool,
+    /// Strip `system_localPeerId` / listen addresses from RPC (public fullnodes).
+    pub rpc_hide_node_identity: bool,
 }
 
 /// Build and start the full TKS node.
@@ -369,7 +373,8 @@ pub fn new_full(
         let client = client.clone();
         let pool = transaction_pool.clone();
         let is_authority = role.is_authority();
-        let enable_dev_signer = true; // dev mode
+        let enable_dev_signer = cipher.enable_ethereum_dev_signer;
+        let hide_node_identity = cipher.rpc_hide_node_identity;
         let network = network.clone();
         let sync = sync_service.clone();
         let frontier_backend = frontier_backend.clone();
@@ -421,6 +426,7 @@ pub fn new_full(
                 deps,
                 subscription_task_executor,
                 pubsub_notification_sinks.clone(),
+                hide_node_identity,
             )
             .map_err(Into::into)
         })
@@ -604,18 +610,15 @@ pub fn new_full(
 
         if cipher.auto_post_anchor {
             if let Some(path) = cipher.anchor_seed_file.clone() {
-                match std::fs::read_to_string(&path) {
-                    Ok(seed) => {
-                        let seed_trim = seed.trim().to_string();
-                        let pair =
-                            sp_core::ecdsa::Pair::from_legacy_string(&seed_trim, None);
+                match crate::ecdsa_seed::load_ecdsa_from_seed_file(&path) {
+                    Ok((pair, account)) => {
                         crate::cipher_anchor::spawn_anchor_submitter(
                             spawn.clone(),
                             client.clone(),
                             transaction_pool.clone(),
                             anchors_dir.clone(),
-                            seed_trim,
                             pair,
+                            account,
                         );
                     }
                     Err(e) => {

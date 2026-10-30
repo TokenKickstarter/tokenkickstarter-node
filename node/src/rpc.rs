@@ -94,6 +94,7 @@ pub fn create_full<B, C, P, BE, CT, CIDP>(
             fc_mapping_sync::EthereumBlockNotification<B>,
         >,
     >,
+    hide_node_identity: bool,
 ) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
 where
     B: BlockT<Hash = H256>,
@@ -218,6 +219,10 @@ where
     io.merge(HyperswarmRpc::<C, B, BE>::new(client.clone()).into_rpc())?;
 
     io.merge(Web3::new(client).into_rpc())?;
+
+    if hide_node_identity {
+        crate::rpc_public::strip_sensitive_system_methods(&mut io);
+    }
 
     Ok(io)
 }

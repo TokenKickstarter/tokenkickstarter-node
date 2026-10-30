@@ -11,6 +11,11 @@ x-validator-common: &validator-common
     context: ..
     dockerfile: Dockerfile
   restart: always
+  deploy:
+    resources:
+      limits:
+        cpus: "8"
+        memory: 16G
   networks:
     - tks-bridge
   volumes:
@@ -52,6 +57,11 @@ services:
       --port 30333
       --pool-limit 50000
       --pool-kbytes 65536
+      --pool-type fork-aware
+      --pool-future-divisor 10
+      --rpc-hide-node-identity
+      --in-peers 32
+      --out-peers 32
       --enable-cipher-relay
       --cipher-relay-port=4002
       --enable-cipher-shard-executor
@@ -90,6 +100,10 @@ services:
       --port 30333
       --pool-limit 50000
       --pool-kbytes 65536
+      --pool-type fork-aware
+      --pool-future-divisor 10
+      --in-peers 32
+      --out-peers 32
       --bootnodes /bootnodes.txt
 
   tks-validator2:
@@ -118,6 +132,10 @@ services:
       --port 30333
       --pool-limit 50000
       --pool-kbytes 65536
+      --pool-type fork-aware
+      --pool-future-divisor 10
+      --in-peers 32
+      --out-peers 32
       --bootnodes /bootnodes.txt
 
 networks:

@@ -218,9 +218,18 @@ pub fn run() -> sc_cli::Result<()> {
                 hyperswarm_region: cli.cipher_hyperswarm_region.clone(),
                 auto_post_anchor: cli.cipher_auto_post_anchor,
                 anchor_seed_file: cli.cipher_anchor_seed_file.clone(),
+                enable_ethereum_dev_signer: cli.ethereum_dev_signer,
+                rpc_hide_node_identity: cli.rpc_hide_node_identity,
             };
             let runner = cli.create_runner(&cli.run)?;
-            runner.run_node_until_exit(|config| async move {
+            let pool_future_divisor = cli.pool_future_divisor;
+            let pool_params = cli.run.transaction_pool.clone();
+            runner.run_node_until_exit(move |mut config| async move {
+                crate::tx_pool::apply_burst_pool_scaling(
+                    &mut config,
+                    &pool_params,
+                    pool_future_divisor,
+                );
                 service::new_full(config, cipher).map_err(sc_cli::Error::Service)
             })
         }

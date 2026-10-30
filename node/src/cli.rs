@@ -78,6 +78,19 @@ pub struct Cli {
     /// File containing one line: Substrate/ecdsa secret URI for the shard validator AccountId20.
     #[arg(long)]
     pub cipher_anchor_seed_file: Option<std::path::PathBuf>,
+
+    /// Enable Ethereum dev signer on RPC (`EthDevSigner`). Off by default — production must not expose dev keys.
+    #[arg(long, default_value_t = false)]
+    pub ethereum_dev_signer: bool,
+
+    /// Hide `system_localPeerId`, listen addresses, and raw peer lists on JSON-RPC.
+    #[arg(long, default_value_t = false)]
+    pub rpc_hide_node_identity: bool,
+
+    /// Scale `--pool-limit` / `--pool-kbytes` by this factor so the *future* queue matches the nominal limit.
+    /// Substrate uses `future = ready / 10`; default `10` → future.size ≈ `--pool-limit` (burst-safe).
+    #[arg(long, default_value_t = 10)]
+    pub pool_future_divisor: usize,
 }
 
 #[derive(Debug, clap::Subcommand)]

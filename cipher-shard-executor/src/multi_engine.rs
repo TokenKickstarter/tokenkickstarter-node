@@ -63,7 +63,10 @@ impl MultiShardEngine {
             if !due_time && !due_size {
                 continue;
             }
-            let global_shard_id = base_shard_id.saturating_add(i as u16);
+            // Logical hybrid indices are off-chain only; L1 `post_anchor` uses the node's
+            // assigned shard until independent shard hosts exist per validator.
+            let _ = i;
+            let global_shard_id = base_shard_id;
             if let Some(payload) = engine.seal(global_shard_id, epoch, da_dir, anchors_dir)? {
                 hybrid.record_sealed(payload.message_count);
                 self.last_seal[i] = Instant::now();

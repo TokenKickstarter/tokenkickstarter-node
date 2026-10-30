@@ -229,11 +229,17 @@ jobs:
 
       - name: Generate chainspec files
         run: |
+          # Dev/local reference (Alice/Bob)
           ./target/release/tks-chain-node \
             build-spec --chain=local > release-files/tks-testnet-spec.json
           ./target/release/tks-chain-node \
             build-spec --chain=release-files/tks-testnet-spec.json --raw \
             > release-files/tks-testnet-spec-raw.json
+          # Production template (Live TKS Network — fill bootNodes via assemble script)
+          cp network/tks-network-spec.template.json release-files/tks-network-spec.template.json
+          cp network/genesis-summary.public.example.json release-files/genesis-summary.public.example.json
+          cp network/GENESIS-ALLOCATION.public.md release-files/GENESIS-ALLOCATION.public.md
+          cp network/SUDO-MULTISIG.public.md release-files/SUDO-MULTISIG.public.md
           echo "Chainspec generated"
 
       - name: Reject production secrets in release bundle
