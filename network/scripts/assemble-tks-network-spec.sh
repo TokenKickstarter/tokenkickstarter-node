@@ -3,8 +3,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-NODE="$ROOT/target/release/tks-chain-node"
-KEYS="$ROOT/network/production-keys"
+NODE="${TKS_NODE:-$ROOT/target/release/tks-chain-node}"
+KEYS="${PRODUCTION_KEYS_DIR:-$ROOT/network/production-keys}"
 INPUT="${TKS_GENESIS_INPUT:-$ROOT/network/production-genesis-input.json}"
 OUT="$ROOT/network/tks-network-spec.json"
 TEMPLATE="$ROOT/network/tks-network-spec.template.json"

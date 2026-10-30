@@ -17,6 +17,16 @@ Use this when the live chain must **not** reuse Alice/Bob, dev sudo, or empty Hy
 
 ## Offline steps (operator machine)
 
+**Wallets only** (sudo 2-of-3 + 2 validator stashes + treasury buckets):
+
+```bash
+export TKS_NODE=./target/release/tks-chain-node   # or a release binary
+./network/scripts/generate-production-wallets.sh
+# Optional: PRODUCTION_KEYS_DIR=network/production-keys-regen-YYYYMMDD
+```
+
+**Full genesis** (same keys + `tks-network-spec-raw.json`):
+
 ```bash
 cd tks-substrate-node
 cargo build --release -p tks-chain-node
@@ -25,7 +35,17 @@ cp network/production-genesis-input.example.json network/production-genesis-inpu
 # Edit allocations, shard URLs, bootnodes if needed.
 
 ./network/scripts/bootstrap-production-genesis.sh
+# or: generate-production-wallets.sh then assemble-tks-network-spec.sh + build-tks-network-spec.sh
 ```
+
+### Already on mainnet (spec 412)?
+
+You **cannot** assign new random wallets as sudo or validators on the **live** chain. Genesis already fixed:
+
+- Sudo signers: see `network/GENESIS-ALLOCATION.public.md`
+- Keys on disk: `network/production-keys/sudo-member{1,2,3}.json` (must match those H160s)
+
+Fund signers → `multisig.asMulti` with those files. New keys only apply after **purge + new raw spec**.
 
 Outputs:
 

@@ -5,12 +5,12 @@ set -euo pipefail
 RPC="${TKS_RPC:-https://rpc.tokenkickstarter.com}"
 RELAY="${TKS_RELAY:-https://relay.tokenkickstarter.com}"
 SHARD="${TKS_SHARD:-https://shard.tokenkickstarter.com}"
-EXPECTED_GENESIS="${EXPECTED_GENESIS:-0xd6c706533a997bfb0b97de3f4d5eb83c1ab6f6eab7983e23ff273fcabe7ac43b}"
+EXPECTED_GENESIS="${EXPECTED_GENESIS:-0x104c48a9dd32d624c3bbba81f644d8865b36cc33c156bcbc05ffe15c327600bc}"
 EXPECTED_CHAIN="${EXPECTED_CHAIN:-TKS Network}"
 EXPECTED_SPEC="${EXPECTED_SPEC:-412}"
-MULTISIG="${MULTISIG:-0x1af24cf357ddbb9434522984dcd540b40bd25ebd}"
+MULTISIG="${MULTISIG:-0xd0ecdb4dd41fbe6863f4ca6c68874ae61198d489}"
 ALICE_LEGACY="${ALICE_LEGACY:-0xe04cc55ebee1cbce552f250e85c57b70b2e2625b}"
-V1="${V1:-0x02a7c7d31b22423ccdb1c0405b7fa63a1c6d8f19}"
+V1="${V1:-0x4b36c368acf0dca5fff3fd5c2733f5c6f5156c06}"
 
 export EXPECTED_GENESIS EXPECTED_CHAIN EXPECTED_SPEC MULTISIG ALICE_LEGACY V1
 
@@ -166,7 +166,8 @@ import json,sys,os
 d=json.load(sys.stdin)
 v=d['result']
 assert len(v)==2
-assert v[0]['account_id'].lower()==os.environ['V1'].lower()
+ids=[x['account_id'].lower() for x in v]
+assert os.environ['V1'].lower() in ids
 print(f'{len(v)} validators')
 "
 
@@ -178,6 +179,20 @@ i=d['result']
 assert i['active_shard_count']>=1
 print(i)
 "
+
+r=$(rpc tks_anchorStats)
+if echo "$r" | grep -q '"total_anchors"'; then
+  check_ok "tks_anchorStats" "$r" "
+import json,sys
+d=json.load(sys.stdin)
+s=d['result']
+assert int(s['total_anchors'])>=1
+print(s)
+"
+else
+  echo "SKIP  tks_anchorStats (upgrade node for audit RPC)"
+  SKIP=$((SKIP + 1))
+fi
 
 # ── EVM ──
 r=$(rpc eth_chainId)

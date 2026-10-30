@@ -1,23 +1,21 @@
 {
-  "comment": "Example shape after v0.1.13 — addresses are Keccak-derived H160s. Yours live in production-keys/genesis-summary.json.",
+  "comment": "v0.1.17 regen shape — treasury lines filled on operator machine after assemble",
   "spec_version": 412,
-  "genesis_sudo_multisig": "0xd0ecdb4dd41fbe6863f4ca6c68874ae61198d489",
+  "genesis_sudo_multisig": "0x8eeb8be59ccb1c65211ab787e6ba174753a68f1a",
   "sudo_threshold": 2,
   "sudo_members": [
-    "0xd876889fb236ebacdcf00e5007666d2094a5ada5",
-    "0x5a3173a1d18049f9b19bdd15de9b28b671e0dc29",
-    "0xaedfec3469ffe1fee0e0a54679270e183026b66e"
+    "0x5b5478f3929645a96b17712a3b1743eded5d4ad7",
+    "0x00373382c01459df2801f1f510926bc6acf9ddf7",
+    "0x635ed8d610027d2df9398867e3da48db54d12f49"
   ],
   "validator_stash": [
-    "0x4b36c368acf0dca5fff3fd5c2733f5c6f5156c06",
-    "0xd7fb644dae59383c8e4ccac994b7691fb64baa08"
+    "0x02dd89492248adf97484f3e55b1498e969e87632",
+    "0x5ad443fa2255e47f737cbd0c93d2166638dc8b6e"
   ],
   "cipher_accounts": [
-    "0x4b36c368acf0dca5fff3fd5c2733f5c6f5156c06",
-    "0xd7fb644dae59383c8e4ccac994b7691fb64baa08"
+    "0x02dd89492248adf97484f3e55b1498e969e87632",
+    "0x5ad443fa2255e47f737cbd0c93d2166638dc8b6e"
   ],
   "shard_validators_at_genesis": 2,
-  "legacy_alice_balance": "0",
-  "legacy_bob_balance": "0",
-  "treasury_airdrop_h160": "0x1c6c37ecc401fbb308148ce45fa4fd890e076c58"
+  "legacy_alice_balance": "0"
 }

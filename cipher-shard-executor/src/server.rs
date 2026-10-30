@@ -86,6 +86,44 @@ async fn handle_hybrid(
             let n = guard.pending_total();
             ok_json(&format!(r#"{{"queued":{n}}}"#))
         }
+        (Method::POST, "/store") => {
+            // Same JSON shape as cipher-relay `/store` (auditors often hit the shard vhost).
+            #[derive(serde::Deserialize)]
+            struct StoreChunk {
+                recipient_id: String,
+                message_id: String,
+                ciphertext: Vec<u8>,
+                stored_at: u64,
+                #[serde(default)]
+                expires_at: u64,
+            }
+            let bytes = match body.collect().await {
+                Ok(collected) => collected.to_bytes(),
+                Err(_) => return err(StatusCode::BAD_REQUEST, "body read failed"),
+            };
+            let chunk: StoreChunk = match serde_json::from_slice(&bytes) {
+                Ok(c) => c,
+                Err(e) => return err(StatusCode::BAD_REQUEST, &format!("invalid json: {e}")),
+            };
+            let _ = chunk.expires_at;
+            use sha2::{Digest, Sha256};
+            let hash: [u8; 32] = Sha256::digest(&chunk.ciphertext).into();
+            let msg = CipherBatchMessage {
+                msg_id: chunk.message_id.clone(),
+                sender_id: "shard-store".into(),
+                recipient_id: chunk.recipient_id.clone(),
+                ciphertext_hash: hash,
+                stored_at: chunk.stored_at,
+            };
+            let local = hybrid.shard_route_index(&msg.recipient_id);
+            let mut guard = engine.lock().await;
+            guard.ingest(local, msg);
+            let n = guard.pending_total();
+            ok_json(&format!(
+                r#"{{"Stored":{{"message_id":"{}"}},"queued":{n}}}"#,
+                chunk.message_id
+            ))
+        }
         _ => err(StatusCode::NOT_FOUND, "not found"),
     }
 }

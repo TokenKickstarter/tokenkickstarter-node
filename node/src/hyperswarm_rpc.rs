@@ -30,6 +30,12 @@ pub struct HyperswarmNetworkInfo {
     pub current_epoch: u32,
 }
 
+#[derive(Clone, serde::Serialize)]
+pub struct AnchorStats {
+    pub total_anchors: u64,
+    pub total_messages: u64,
+}
+
 fn validators_key_prefix() -> Vec<u8> {
     let mut prefix = Vec::with_capacity(32);
     prefix.extend_from_slice(&twox_128(b"ShardRegistry"));
@@ -56,6 +62,9 @@ pub trait HyperswarmApi {
 
     #[method(name = "tks_hyperswarmNetworkInfo")]
     fn network_info(&self) -> RpcResult<HyperswarmNetworkInfo>;
+
+    #[method(name = "tks_anchorStats")]
+    fn anchor_stats(&self) -> RpcResult<AnchorStats>;
 }
 
 pub struct HyperswarmRpc<C, B, BE> {
@@ -155,4 +164,45 @@ where
             current_epoch,
         })
     }
+
+    fn anchor_stats(&self) -> RpcResult<AnchorStats> {
+        let at = self.client.info().best_hash;
+        let total_anchors = read_storage_u64(
+            &self.client,
+            at,
+            b"HyperSwarmAnchor",
+            b"TotalAnchors",
+        );
+        let total_messages = read_storage_u64(
+            &self.client,
+            at,
+            b"HyperSwarmAnchor",
+            b"TotalMessageCount",
+        );
+        Ok(AnchorStats {
+            total_anchors,
+            total_messages,
+        })
+    }
+}
+
+fn read_storage_u64<C, B, BE>(
+    client: &Arc<C>,
+    at: B::Hash,
+    pallet: &[u8],
+    item: &[u8],
+) -> u64
+where
+    B: BlockT,
+    BE: Backend<B> + 'static,
+    C: StorageProvider<B, BE> + Send + Sync + 'static,
+{
+    let mut key = twox_128(pallet).to_vec();
+    key.extend_from_slice(&twox_128(item));
+    client
+        .storage(at, &StorageKey(key))
+        .ok()
+        .flatten()
+        .and_then(|v| u64::decode(&mut &v.0[..]).ok())
+        .unwrap_or(0)
 }

@@ -7,7 +7,7 @@ On-chain **`sudo::Key`** (spec 412 genesis `0x104c48a9…00bc`) is a **`pallet-m
 | Field | Value |
 |--------|--------|
 | Multisig account (sudo, **spec 412 genesis**) | `0xd0ecdb4dd41fbe6863f4ca6c68874ae61198d489` (legacy helper — see below) |
-| **`pallet-multisig` id (runtime, v0.1.15+ helper)** | Run `production multisig-account` on **v0.1.15+** — must match on-chain `sudo.key` after genesis regen |
+| **`pallet-multisig` id (runtime, v0.1.15+ helper)** | **`0x921e298d9b7725892eb5c655aa5d4e55369613cd`** for the signers below (see `tks-chain-node production multisig-account`) |
 | Threshold | **2-of-3** |
 | Signer 1 | `0xd876889fb236ebacdcf00e5007666d2094a5ada5` |
 | Signer 2 | `0x5a3173a1d18049f9b19bdd15de9b28b671e0dc29` |
@@ -38,7 +38,7 @@ tks-chain-node production multisig-account \
 
 Genesis **spec 412** was assembled with a broken offline helper that SCALE-encoded the prefix as a **compact string** (`"modlpy/utilisuba"`) instead of the pallet’s **`b"modlpy/utilisuba"`** byte literal. That yields **`0xd0ec…`** in `sudo.key`.
 
-Tools that follow [`pallet_multisig::Pallet::multi_account_id`](https://github.com/paritytech/polkadot-sdk) (fixed-width byte prefix + sorted `AccountId20` signatories) produce a **different** H160 (auditors reported `0x622b…77a2`; exact bytes depend on AccountId encoding in the tool — use the **node v0.1.15 CLI** as source of truth).
+Tools that follow [`pallet_multisig::Pallet::multi_account_id`](https://github.com/paritytech/polkadot-sdk) with **`b"modlpy/utilisuba"`** and sorted **`AccountId20`** signatories produce **`0x921e298d…613cd`** (node **v0.1.16+** CLI). Auditors who saw **`0x622b…77a2`** typically used a different signatory encoding (e.g. SS58 / 32-byte account) or an older Substrate helper — always compare against the node CLI, not a third-party calculator.
 
 **Governance:** `multisig.asMulti` → `sudo.sudo(call)` only works when **`sudo.key` equals the runtime-derived multisig account**. Spec 412 mainnet still has the legacy `0xd0ec…` key until genesis is regenerated with the fixed helper and the chain is reset.
 

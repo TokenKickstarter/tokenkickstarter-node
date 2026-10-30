@@ -2,7 +2,7 @@
 # Build raw production chainspec from network/tks-network-spec.json
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-NODE="$ROOT/target/release/tks-chain-node"
+NODE="${TKS_NODE:-$ROOT/target/release/tks-chain-node}"
 SPEC="$ROOT/network/tks-network-spec.json"
 RAW="$ROOT/network/tks-network-spec-raw.json"
 

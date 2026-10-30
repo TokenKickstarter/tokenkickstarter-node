@@ -4,6 +4,29 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.17
+
+**New production genesis** (mainnet regen). **Not** a drop-in binary upgrade on old chain data — purge all validator/fullnode data and deploy the release **`tks-network-spec-raw.json`**.
+
+### Node
+
+- **`tks_anchorStats` RPC** — `total_anchors`, `total_messages` for audits.
+- **Shard executor `POST /store`** — same JSON as relay (compat for `shard.*` vhosts); prefer relay `/store` in production.
+- Wallet tooling: `generate-production-wallets.sh`, `vps-regen-v0.1.17.sh`.
+
+### Genesis / sudo
+
+- Sudo **`sudo.key`** matches **pallet-multisig** derivation (`production multisig-account`), not legacy `0xd0ec…`.
+- New validator stashes and sudo signers — see [network/GENESIS-ALLOCATION.public.md](network/GENESIS-ALLOCATION.public.md).
+
+### Deploy
+
+1. Publish/release includes **`tks-network-spec-raw.json`** + SHA-256 sidecar.
+2. On VPS: copy **production-keys/** (secrets, never in git), raw spec → `config/tks-testnet-spec-raw.json`, run **`network/scripts/vps-regen-v0.1.17.sh`** (purge + session keys + v0.1.17 binary).
+3. Re-run **`public-rpc-test.sh`** with new `EXPECTED_GENESIS` from `chain_getBlockHash(0)`.
+
+---
+
 ## v0.1.16
 
 Public RPC identity hardening at the **node** (HTTP + WebSocket). **Runtime spec 412 unchanged.**
