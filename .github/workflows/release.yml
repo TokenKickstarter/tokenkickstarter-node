@@ -61,7 +61,7 @@ jobs:
 
       - name: Package binary
         run: |
-          VERSION="${{ github.ref_name || github.event.inputs.version }}"
+          VERSION="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}"
           cp target/${{ matrix.target }}/release/tks-chain-node \
              tks-chain-node-${VERSION}-macos-${{ matrix.arch }}
           chmod +x tks-chain-node-${VERSION}-macos-${{ matrix.arch }}
@@ -118,7 +118,7 @@ jobs:
 
       - name: Package binary
         run: |
-          VERSION="${{ github.ref_name || github.event.inputs.version }}"
+          VERSION="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}"
           cp target/${{ matrix.target }}/release/tks-chain-node \
              tks-chain-node-${VERSION}-linux-${{ matrix.arch }}
           chmod +x tks-chain-node-${VERSION}-linux-${{ matrix.arch }}
@@ -166,7 +166,7 @@ jobs:
       - name: Package binary
         shell: bash
         run: |
-          VERSION="${{ github.ref_name || github.event.inputs.version }}"
+          VERSION="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}"
           cp target/release/tks-chain-node.exe \
              tks-chain-node-${VERSION}-windows-amd64.exe
 
@@ -278,14 +278,14 @@ jobs:
       - name: Build release notes from RELEASE_NOTES.md
         run: |
           chmod +x .github/scripts/build-release-body.sh
-          .github/scripts/build-release-body.sh "${{ github.ref_name || github.event.inputs.version }}"
+          .github/scripts/build-release-body.sh "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: TKS Node ${{ github.ref_name || github.event.inputs.version }}
+          name: TKS Node ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}
           body_path: release-body.md
           files: release-files/*
           draft: false
           prerelease: false
-          tag_name: ${{ github.ref_name || github.event.inputs.version }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}
