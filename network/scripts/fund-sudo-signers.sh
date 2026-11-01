@@ -23,4 +23,5 @@ for to in "${SIGNERS[@]}"; do
     --seed-file "$FUND_SEED_FILE" \
     --to "$to" \
     --amount-tks "$AMOUNT_TKS"
+  sleep "${FUND_PAUSE_SECS:-18}"
 done

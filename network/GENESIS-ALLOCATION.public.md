@@ -4,7 +4,7 @@
 
 Genesis hash: **`0x28a554eb58356946b3ac7ce61fa1562cbda2dd1171ee8c7719140e0e33a2e31c`**
 
-SHA-256 (raw spec): **`d83bc9d26c46561586b59821633559f92cadfcefc489eb64d7832a00b252a49e`**
+SHA-256 (raw spec): **`b7ef634e040c1cacac6c3b78d00981a5f1cbce0d4023e5f708e388750560a103`** (v0.1.19 — public bootnodes; genesis unchanged)
 
 Full bucket table: [`GENESIS-BALANCES.md`](./GENESIS-BALANCES.md).
 

@@ -153,6 +153,18 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         /// Called at the START of every block.
         /// Reads last block's gas usage and adjusts the limit for this block.
+        fn on_finalize(_n: BlockNumberFor<T>) {
+            let used = LastBlockGasUsed::<T>::get();
+            let limit = CurrentGasLimit::<T>::get();
+            if used > limit {
+                log::error!(
+                    target: "adaptive-gas",
+                    "Block gas used ({used}) exceeded limit ({limit}); clamping metrics"
+                );
+                LastBlockGasUsed::<T>::put(limit);
+            }
+        }
+
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
             let current_limit = CurrentGasLimit::<T>::get();
             let last_used = LastBlockGasUsed::<T>::get();
@@ -247,8 +259,7 @@ pub mod pallet {
         /// Record gas used by a transaction. Called by EVM hook.
         pub fn record_gas_used(gas: u64) {
             LastBlockGasUsed::<T>::mutate(|used| {
-                let limit = CurrentGasLimit::<T>::get();
-                *used = used.saturating_add(gas).min(limit);
+                *used = used.saturating_add(gas);
             });
         }
 

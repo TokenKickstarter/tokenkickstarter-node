@@ -1,47 +1,65 @@
 # Production sudo (multisig)
 
-On-chain **`sudo::Key`** (spec 412 genesis `0x104c48a9…00bc`) is a **`pallet-multisig` derived account**, not a single ECDSA key.
+On-chain **`sudo::Key`** on **current mainnet** (regen genesis **`0x28a554eb…`**, spec **412**, release **v0.1.17+**) is the runtime **`pallet-multisig`** derived account — not a single ECDSA key.
 
-## Published configuration (v0.1.13)
+## Published configuration (regen mainnet)
 
 | Field | Value |
 |--------|--------|
-| Multisig account (sudo, **spec 412 genesis**) | `0xd0ecdb4dd41fbe6863f4ca6c68874ae61198d489` (legacy helper — see below) |
-| **`pallet-multisig` id (runtime, v0.1.15+ helper)** | **`0x921e298d9b7725892eb5c655aa5d4e55369613cd`** for the signers below (see `tks-chain-node production multisig-account`) |
+| Genesis hash | `0x28a554eb58356946b3ac7ce61fa1562cbda2dd1171ee8c7719140e0e33a2e31c` |
+| Multisig account (`sudo.key`) | **`0x8eeb8be59ccb1c65211ab787e6ba174753a68f1a`** |
 | Threshold | **2-of-3** |
-| Signer 1 | `0xd876889fb236ebacdcf00e5007666d2094a5ada5` |
-| Signer 2 | `0x5a3173a1d18049f9b19bdd15de9b28b671e0dc29` |
-| Signer 3 | `0xaedfec3469ffe1fee0e0a54679270e183026b66e` |
+| Signer 1 | `0x5b5478f3929645a96b17712a3b1743eded5d4ad7` |
+| Signer 2 | `0x00373382c01459df2801f1f510926bc6acf9ddf7` |
+| Signer 3 | `0x635ed8d610027d2df9398867e3da48db54d12f49` |
 
-Example JSON: [`genesis-summary.public.example.json`](./genesis-summary.public.example.json).
+Example JSON: [`genesis-summary.public.example.json`](./genesis-summary.public.example.json).  
+Allocation table: [`GENESIS-ALLOCATION.public.md`](./GENESIS-ALLOCATION.public.md).
+
+## Verify offline (no secrets)
+
+```bash
+tks-chain-node production multisig-account \
+  --threshold 2 \
+  --signatories 0x5b5478f3929645a96b17712a3b1743eded5d4ad7,0x00373382c01459df2801f1f510926bc6acf9ddf7,0x635ed8d610027d2df9398867e3da48db54d12f49
+# Must print: 0x8eeb8be59ccb1c65211ab787e6ba174753a68f1a
+```
+
+Compare with `sudo.key` in [`tks-network-spec-raw.json`](./tks-network-spec-raw.json) and `eth_getBalance` of that address (~1000 TKS for dispatch deposits).
 
 ## Verify on-chain (read-only RPC)
 
 ```bash
 RPC=https://rpc.tokenkickstarter.com
-# Sudo key must match multisig account
 curl -s "$RPC" -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"state_getStorage","params":["0x…sudo::Key encoding…"]}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":["0x8eeb8be59ccb1c65211ab787e6ba174753a68f1a","latest"]}'
 ```
 
-Easier: use the node helper (offline, no secrets):
+Pending multisig ops (should be **empty** after governance smoke tests):
 
 ```bash
-tks-chain-node production multisig-account \
-  --threshold 2 \
-  --signatories 0xd876889fb236ebacdcf00e5007666d2094a5ada5,0x5a3173a1d18049f9b19bdd15de9b28b671e0dc29,0xaedfec3469ffe1fee0e0a54679270e183026b66e
-# v0.1.14 and earlier (bug): 0xd0ecdb4dd41fbe6863f4ca6c68874ae61198d489
-# v0.1.15+ (matches pallet_multisig::multi_account_id for AccountId20)
+tks-chain-node production multisig-list-pending \
+  --rpc-url "$RPC" \
+  --multisig 0x8eeb8be59ccb1c65211ab787e6ba174753a68f1a
 ```
 
-### Why auditors saw `0xd0ec…` vs `0x622b…`
+## Governance path
 
-Genesis **spec 412** was assembled with a broken offline helper that SCALE-encoded the prefix as a **compact string** (`"modlpy/utilisuba"`) instead of the pallet’s **`b"modlpy/utilisuba"`** byte literal. That yields **`0xd0ec…`** in `sudo.key`.
+`multisig.asMulti` → wrapped `sudo.sudo(call)`. No single signer can dispatch sudo alone.
 
-Tools that follow [`pallet_multisig::Pallet::multi_account_id`](https://github.com/paritytech/polkadot-sdk) with **`b"modlpy/utilisuba"`** and sorted **`AccountId20`** signatories produce **`0x921e298d…613cd`** (node **v0.1.16+** CLI). Auditors who saw **`0x622b…77a2`** typically used a different signatory encoding (e.g. SS58 / 32-byte account) or an older Substrate helper — always compare against the node CLI, not a third-party calculator.
+**v0.1.19+** smoke tooling waits for the on-chain **timepoint** before `approve_as_multi` (fixes stuck pending from `maybe_timepoint: None`).
 
-**Governance:** `multisig.asMulti` → `sudo.sudo(call)` only works when **`sudo.key` equals the runtime-derived multisig account**. Spec 412 mainnet still has the legacy `0xd0ec…` key until genesis is regenerated with the fixed helper and the chain is reset.
+Cancel a stuck pending call (any one member):
 
-Compare `sudo.key` in the published raw chain spec and `eth_getBalance` of that address (~1000 TKS for dispatch deposits).
+```bash
+tks-chain-node production multisig-cancel-pending \
+  --rpc-url "$RPC" \
+  --multisig 0x8eeb8be59ccb1c65211ab787e6ba174753a68f1a \
+  --member-seed-file sudo-member1.json \
+  --threshold 2 \
+  --signatories 0x5b5478f3929645a96b17712a3b1743eded5d4ad7,0x00373382c01459df2801f1f510926bc6acf9ddf7,0x635ed8d610027d2df9398867e3da48db54d12f49
+```
 
-**Governance path:** `multisig.asMulti` → wrapped `sudo.sudo(call)` — no single key can dispatch sudo alone.
+## Superseded chain (historical only)
+
+**Spec 412 / genesis `0x104c48a9…`** (pre–v0.1.17 regen) used broken offline helpers (`0xd0ec…` in `sudo.key` vs pallet-derived `0x921e…`). That chain was **purged and replaced**; do not use old signer addresses or load numbers from that era for current audits.

@@ -12,5 +12,16 @@ if [[ ! -f "$SPEC" ]]; then
 fi
 
 "$NODE" build-spec --chain "$SPEC" --raw > "$RAW"
-echo "Wrote $RAW"
-sha256sum "$RAW" || shasum -a 256 "$RAW"
+
+# Substrate `build-spec` may inject dev bootnodes (127.0.0.1); production uses human spec only.
+HUMAN_BOOT=$(python3 -c "import json; print(json.dumps(json.load(open('$SPEC')).get('bootNodes', [])))")
+python3 -c "
+import json, sys
+raw = json.load(open('$RAW'))
+human = json.loads(sys.argv[1])
+raw['bootNodes'] = human
+json.dump(raw, open('$RAW', 'w'), indent=2)
+" "$HUMAN_BOOT"
+
+echo "Wrote $RAW (bootNodes=$(echo "$HUMAN_BOOT" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))') entries)"
+sha256sum "$RAW" 2>/dev/null | tee "$RAW.sha256" || shasum -a 256 "$RAW" | tee "$RAW.sha256"

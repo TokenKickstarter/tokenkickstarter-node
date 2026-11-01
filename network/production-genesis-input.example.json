@@ -19,5 +19,7 @@
     { "label": "public_sale", "amount_tks": 150000000, "address": null },
     { "label": "airdrop", "amount_tks": 100000000, "address": null }
   ],
-  "boot_nodes": []
+  "boot_nodes": [
+    "/ip4/144.91.122.247/tcp/30333/p2p/12D3KooWHBh2KuhrXaFcC6t7mEkHhekmphkLD3fmiUbyb5WPojNW"
+  ]
 }

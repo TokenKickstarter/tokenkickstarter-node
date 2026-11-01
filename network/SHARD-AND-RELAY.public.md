@@ -7,7 +7,7 @@ Production Docker on the VPS runs **relay (4002)** and **shard executor (4010)**
 | Host | Port (local) | Role |
 |------|----------------|------|
 | `https://relay.tokenkickstarter.com` | 4002 | **POST `/store`**, `/fetch`, `/ack`, discovery |
-| `https://shard.tokenkickstarter.com` | 4010 | **POST `/ingest`** (batch leaves), **GET `/version`**, `/hybrid/stats` |
+| `https://shard.tokenkickstarter.com` | 4010 | **POST `/store`** (same JSON as relay), **POST `/ingest`**, **GET `/health`**, `/version`, `/hybrid/stats` |
 
 Clients and auditors should **store ciphertext via relay `/store`**. The relay forwards hashed batch leaves to `http://127.0.0.1:4010/ingest`.
 

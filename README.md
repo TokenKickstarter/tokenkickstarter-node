@@ -5,7 +5,7 @@
 [![Chain ID](https://img.shields.io/badge/Chain%20ID-7779-green)](https://chainlist.org)
 [![Build](https://github.com/TokenKickstarter/tokenkickstarter-node/actions/workflows/release.yml/badge.svg)](https://github.com/TokenKickstarter/tokenkickstarter-node/actions/workflows/release.yml)
 
-Layer-1 Substrate blockchain with full EVM compatibility, embedded Cipher relay and shard services, HyperSwarm libp2p mesh, adaptive gas limits, native NFTs, and 1-second block finality.
+Layer-1 Substrate blockchain with full EVM compatibility, embedded Cipher relay and shard services, HyperSwarm libp2p mesh, adaptive gas limits, and native NFTs. **~1 s Aura blocks**; **GRANDPA finality typically ~4–5 s** under load (measure on your RPC).
 
 ---
 
@@ -18,7 +18,7 @@ TokenKickstarter (TKS) is a Layer-1 blockchain built on [Substrate](https://subs
 | Chain ID | 7779 (`0x1E63`) |
 | Native Token | TKS (18 decimals) |
 | Block Time | 1 second |
-| Block Finality | GRANDPA (deterministic) |
+| Block Finality | GRANDPA (~4–5 s typical; 1 s block time) |
 | Address Format | Ethereum-compatible (20-byte, `AccountId20`) |
 | EVM Compatibility | Full — MetaMask, Hardhat, ethers.js, wagmi, Foundry |
 | Consensus | Aura (block production) + GRANDPA (finality) |
@@ -29,7 +29,7 @@ TokenKickstarter (TKS) is a Layer-1 blockchain built on [Substrate](https://subs
 
 ### HyperSwarm Anchor
 
-Publishes and resolves [HyperSwarm](https://github.com/holepunchto/hyperswarm) DHT public keys directly on-chain. Decentralized peer-to-peer applications can anchor their discovery keys to Layer-1 finality, enabling trustless and censorship-resistant peer resolution without external coordination servers.
+**Implemented today:** Cipher relay + libp2p mesh (`cipher-relay`), batch **Merkle roots** on L1 via `pallet-hyperswarm-anchor`, and operator DA JSON under the node data dir. **Planned / partial:** full DAG verification, automated fisherman slashing, and multi-host shard fleets. On-chain DHT key registry for third-party apps is not the same as “trustless” anchor verification — see [network/ANCHOR-VERIFICATION.public.md](network/ANCHOR-VERIFICATION.public.md).
 
 ### Adaptive Gas
 
@@ -43,9 +43,9 @@ Substrate-layer NFT collections with no deposit requirement. Collections and ite
 
 On-chain human-readable names (e.g., `alice.tks`) with zero registration deposit. Names can be registered, transferred, and resolved on-chain, providing identity infrastructure without gas cost.
 
-### 1-Second Block Finality
+### Block time and finality
 
-Aura-based block production with 1,000ms slot duration combined with GRANDPA deterministic finality. Transactions reach economic finality within seconds.
+Aura produces blocks about every **1 second**. GRANDPA finalizes a prefix of the chain; measured lag is often **~4–5 seconds** on mainnet (not 1 s). Use `chain_getFinalizedHead` vs best head to report finality for investors.
 
 ### Full EVM Compatibility
 
@@ -53,7 +53,7 @@ Standard Ethereum JSON-RPC API. Deploy any Solidity contract, use MetaMask, conn
 
 ### Cipher messaging (embedded data plane)
 
-The node binary can run an HTTP Cipher relay, shard executor, and HyperSwarm libp2p mesh alongside Substrate and Frontier. Message delivery throughput is governed by `cipher-hybrid` (approximately 1k to 500k aggregate messages per second under load). Layer-1 EVM TPS and Cipher aggregate messaging are separate metrics.
+The node binary can run an HTTP Cipher relay, shard executor, and HyperSwarm libp2p mesh alongside Substrate and Frontier. **`cipher-hybrid` exposes configured ceilings up to ~500k aggregate msg/s** (design target across logical shards); **measured** throughput is `GET /hybrid/stats` → `measured_tps` / `lifetime_ingress`. Layer-1 EVM TPS and Cipher messaging are separate metrics — see [network/HYBRID-THROUGHPUT.md](network/HYBRID-THROUGHPUT.md).
 
 | Service | Default port | Role |
 |---------|--------------|------|

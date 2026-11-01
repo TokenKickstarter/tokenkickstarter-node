@@ -32,6 +32,17 @@ impl SubstrateCli for Cli {
     }
 
     fn load_spec(&self, id: &str) -> Result<Box<dyn sc_service::ChainSpec>, String> {
+        let id = id.trim();
+        if !cfg!(debug_assertions)
+            && (id.is_empty() || id == "local" || id == "dev")
+            && std::env::var("TKS_ALLOW_DEV_CHAIN").is_err()
+        {
+            return Err(
+                "Refusing implicit dev chain (Alice/Bob). Pass --chain /path/to/chainspec.json \
+                 or --chain tks-network. Set TKS_ALLOW_DEV_CHAIN=1 only on developer machines."
+                    .into(),
+            );
+        }
         Ok(match id {
             "dev" => Box::new(chain_spec::development_config()?),
             "" | "local" => Box::new(chain_spec::local_testnet_config()?),
@@ -121,6 +132,8 @@ pub fn run() -> sc_cli::Result<()> {
             crate::genesis_util::ProductionCmd::AccountId20(c) => c.run(),
             crate::genesis_util::ProductionCmd::MultisigAccount(c) => c.run(),
             crate::genesis_util::ProductionCmd::MultisigSudoForceRotate(c) => c.run(),
+            crate::genesis_util::ProductionCmd::MultisigListPending(c) => c.run(),
+            crate::genesis_util::ProductionCmd::MultisigCancelPending(c) => c.run(),
             crate::genesis_util::ProductionCmd::FundH160(c) => c.run(),
         },
 

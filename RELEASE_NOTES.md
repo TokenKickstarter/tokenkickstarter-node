@@ -4,6 +4,47 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.20
+
+**R6 investor audit remediation.** Runtime **spec 413** (`set_code` required on live chain).
+
+### Fixes
+
+- **Gas enforcement:** `AdaptiveWeightPerGas` ties block weight to live `CurrentGasLimit` (fixes blocks where `gasUsed` could exceed `gasLimit` under load). Harness: `network/scripts/assert-block-gas-limits.py`, `run-r6-20k-evidence.sh`.
+- **Anchors:** batch `msg_id` dedupe (relay + ingest); [`ANCHOR-VERIFICATION.public.md`](network/ANCHOR-VERIFICATION.public.md).
+- **Multisig:** timepoint-safe approve (v0.1.19+); live smoke script [`live-multisig-sudo-force-rotate.sh`](network/scripts/live-multisig-sudo-force-rotate.sh).
+- **Shard HTTP:** `/stats`, `/discovery`, `POST /ack` (non-404) on shard vhost.
+- **Hygiene:** `LICENSE`, CI (`ci.yml`), Frontier pinned to `0eeb4266`, release builds refuse implicit Alice/Bob chain without `TKS_ALLOW_DEV_CHAIN`.
+- **Docs:** README finality / 500k / HyperSwarm scope; [`R6-AUDIT-RESPONSE.md`](network/R6-AUDIT-RESPONSE.md).
+
+### Deploy
+
+1. Tag **v0.1.20**, upgrade VPS Docker (no purge).
+2. Submit **spec 413** WASM via multisig → sudo.
+3. Run **`run-r6-20k-evidence.sh`** ×3 on VPS; attach logs to investor packet.
+
+---
+
+## v0.1.19
+
+R4 audit closure — **no genesis change** (same `0x28a554…`).
+
+### Fixes
+
+- **Published bootnodes:** `tks-network-spec-raw.json` + [`network/bootnodes.public.txt`](network/bootnodes.public.txt) use public VPS P2P (`144.91.122.247:30333`); `build-tks-network-spec.sh` overwrites dev `127.0.0.1` from `build-spec`.
+- **Multisig:** `multisig-sudo-force-rotate` waits for on-chain **timepoint** before `approve_as_multi`; **`production multisig-list-pending`** / **`multisig-cancel-pending`** for stuck calls.
+- **Anchors:** shard batch engine **dedupes `msg_id`** (relay + forwarded ingest no longer double-count on L1).
+- **Docs:** [`network/AUDIT-OPEN-ITEMS.md`](network/AUDIT-OPEN-ITEMS.md), [`SUDO-MULTISIG.public.md`](network/SUDO-MULTISIG.public.md) (regen), [`MAINNET-STABILITY.md`](network/MAINNET-STABILITY.md), [`R4-L1-REBASELINE.md`](network/R4-L1-REBASELINE.md).
+
+### Deploy
+
+1. Replace `config/chainspec-raw.json` + `bootnodes.txt` on VPS (`network/scripts/vps-patch-chainspec-bootnodes.sh`).
+2. Rebuild Docker image **v0.1.19**, recreate containers (no purge).
+3. Run `clear-sudo-multisig-pending.sh` if `multisig-list-pending` shows entries.
+4. `./network/scripts/public-rpc-test.sh` and `./network/scripts/verify-sudo-multisig.sh`.
+
+---
+
 ## v0.1.17
 
 **New production genesis** (mainnet regen). **Not** a drop-in binary upgrade on old chain data — purge all validator/fullnode data and deploy the release **`tks-network-spec-raw.json`**.

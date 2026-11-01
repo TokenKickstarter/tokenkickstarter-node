@@ -1,5 +1,6 @@
 //! In-memory batching and periodic seal.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -18,13 +19,26 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-#[derive(Default)]
 pub struct BatchEngine {
     pending: Vec<CipherBatchMessage>,
+    /// Dedupe relay `/store` + forwarded `/ingest` (and shard `/store` retries).
+    pending_ids: HashSet<String>,
+}
+
+impl Default for BatchEngine {
+    fn default() -> Self {
+        Self {
+            pending: Vec::new(),
+            pending_ids: HashSet::new(),
+        }
+    }
 }
 
 impl BatchEngine {
     pub fn ingest(&mut self, msg: CipherBatchMessage) {
+        if !self.pending_ids.insert(msg.msg_id.clone()) {
+            return;
+        }
         self.pending.push(msg);
     }
 
@@ -44,6 +58,9 @@ impl BatchEngine {
         }
 
         let messages = std::mem::take(&mut self.pending);
+        for m in &messages {
+            self.pending_ids.remove(&m.msg_id);
+        }
         let root = compute_dag_root(&messages);
         let blob = DataAvailabilityBlob {
             shard_id,
@@ -77,6 +94,30 @@ impl BatchEngine {
 }
 
 pub type SharedEngine = Arc<Mutex<BatchEngine>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::batch::CipherBatchMessage;
+
+    fn sample_msg(id: &str) -> CipherBatchMessage {
+        CipherBatchMessage {
+            msg_id: id.into(),
+            sender_id: "t".into(),
+            recipient_id: "r".into(),
+            ciphertext_hash: [0u8; 32],
+            stored_at: 1,
+        }
+    }
+
+    #[test]
+    fn ingest_dedupes_same_msg_id() {
+        let mut e = BatchEngine::default();
+        e.ingest(sample_msg("m1"));
+        e.ingest(sample_msg("m1"));
+        assert_eq!(e.pending_len(), 1);
+    }
+}
 
 pub fn new_shared_engine() -> SharedEngine {
     Arc::new(Mutex::new(BatchEngine::default()))

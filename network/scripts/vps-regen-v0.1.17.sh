@@ -17,7 +17,7 @@ chmod +x "config/tks-chain-node.new"
 mv "config/tks-chain-node.new" "config/tks-chain-node"
 
 if [[ -f "$KEYS/cipher-anchor-seed.txt" ]]; then
-  install -m 600 "$KEYS/cipher-anchor-seed.txt" "config/cipher-anchor-seed.txt"
+  install -m 644 "$KEYS/cipher-anchor-seed.txt" "config/cipher-anchor-seed.txt"
 fi
 
 mkdir -p config/session-keys

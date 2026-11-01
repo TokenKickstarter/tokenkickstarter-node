@@ -10,6 +10,10 @@ pub enum ProductionCmd {
     MultisigAccount(MultisigAccountCmd),
     /// Smoke test: 2-of-3 multisig dispatches `sudo(force_rotate)`.
     MultisigSudoForceRotate(crate::multisig_sudo_cmd::MultisigSudoForceRotateCmd),
+    /// List pending `Multisig` storage entries for an account (read-only RPC).
+    MultisigListPending(crate::multisig_pending_cmd::MultisigListPendingCmd),
+    /// Cancel stuck pending multisig calls (any one signer).
+    MultisigCancelPending(crate::multisig_pending_cmd::MultisigCancelPendingCmd),
     /// Send native TKS to an H160 via `Balances.transfer_allow_death`.
     FundH160(crate::production_fund_cmd::ProductionFundH160Cmd),
 }

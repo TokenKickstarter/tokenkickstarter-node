@@ -66,9 +66,22 @@ async fn handle_hybrid(
                 ok_json(r#"{"error":"build_info unavailable"}"#)
             }
         }
-        (Method::GET, "/hybrid/stats") => {
+        (Method::GET, "/hybrid/stats") | (Method::GET, "/stats") => {
             let snap = hybrid.snapshot();
             ok_json(&serde_json::to_string(&snap).unwrap_or_else(|_| "{}".into()))
+        }
+        (Method::GET, "/discovery") => {
+            let body = serde_json::json!({
+                "role": "shard_ingest",
+                "note": "Ciphertext storage and POST /ack live on relay; this host batches leaves for L1 anchors.",
+                "preferred_store": "https://relay.tokenkickstarter.com/store",
+                "preferred_ack": "https://relay.tokenkickstarter.com/ack",
+                "endpoints": ["/ingest", "/store", "/health", "/version", "/hybrid/stats", "/stats"]
+            });
+            ok_json(&body.to_string())
+        }
+        (Method::POST, "/ack") => {
+            ok_json(r#"{"deleted":0,"note":"Shard does not retain ciphertext; POST /ack to relay.tokenkickstarter.com"}"#)
         }
         (Method::POST, "/ingest") => {
             let bytes = match body.collect().await {

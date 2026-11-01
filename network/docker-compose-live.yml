@@ -40,6 +40,10 @@ services:
         source: ./chainspec-raw.json
         target: /chainspec.json
         read_only: true
+      - type: bind
+        source: ./bootnodes.public.txt
+        target: /bootnodes.txt
+        read_only: true
       # Host file must be world-readable (container runs as user `tks`), e.g. chmod 644
       - type: bind
         source: ./production-keys/cipher-anchor-seed.txt
@@ -80,6 +84,10 @@ services:
     volumes:
       - tks-data-validator1:/data
       - type: bind
+        source: ./bootnodes.public.txt
+        target: /bootnodes.txt
+        read_only: true
+      - type: bind
         source: ./chainspec-raw.json
         target: /chainspec.json
         read_only: true
@@ -111,6 +119,10 @@ services:
     container_name: tks-validator2
     volumes:
       - tks-data-validator2:/data
+      - type: bind
+        source: ./bootnodes.public.txt
+        target: /bootnodes.txt
+        read_only: true
       - type: bind
         source: ./chainspec-raw.json
         target: /chainspec.json

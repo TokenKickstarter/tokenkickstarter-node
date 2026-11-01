@@ -11,6 +11,7 @@ use tks_runtime::{Hash, RuntimeCall, VERSION};
 
 use crate::extrinsic_sign::encode_signed_extrinsic;
 use crate::genesis_util::multisig_account_id;
+use crate::multisig_storage::wait_for_multisig_timepoint;
 use crate::shard_setup_cmd::{fetch_account_nonce, fetch_genesis_hash, rpc_call};
 
 #[derive(Debug, clap::Parser)]
@@ -101,12 +102,17 @@ impl MultisigSudoForceRotateCmd {
         )?;
 
         // Member 2: approve pending multisig (executes when threshold met).
-        std::thread::sleep(std::time::Duration::from_secs(6));
+        let timepoint = wait_for_multisig_timepoint(
+            &self.rpc_url,
+            multisig_addr,
+            &call_hash,
+            45,
+        )?;
         let nonce2 = fetch_account_nonce(&self.rpc_url, acc2)?;
         let call2 = RuntimeCall::Multisig(MultisigCall::approve_as_multi {
             threshold: self.threshold,
             other_signatories: other_for(acc2),
-            maybe_timepoint: None,
+            maybe_timepoint: Some(timepoint),
             call_hash,
             max_weight,
         });

@@ -90,33 +90,33 @@ cumulus-primitives-proof-size-hostfunction = { git = "https://github.com/parityt
 
 
 # ─── Frontier (EVM) Primitives ─────────────────────────────────────
-fp-account             = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-fp-evm                 = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-fp-rpc                 = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-fp-self-contained      = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-fp-dynamic-fee         = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-fp-ethereum            = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
+fp-account             = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+fp-evm                 = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+fp-rpc                 = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+fp-self-contained      = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+fp-dynamic-fee         = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+fp-ethereum            = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
 
 # ─── Frontier (EVM) Pallets ────────────────────────────────────────
-pallet-evm             = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-pallet-ethereum        = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-pallet-base-fee        = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-pallet-dynamic-fee     = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-pallet-evm-chain-id    = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-pallet-evm-precompile-simple = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-pallet-evm-precompile-modexp = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-pallet-evm-precompile-sha3fips = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
-pallet-hotfix-sufficients = { git = "https://github.com/polkadot-evm/frontier", branch = "master", default-features = false }
+pallet-evm             = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+pallet-ethereum        = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+pallet-base-fee        = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+pallet-dynamic-fee     = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+pallet-evm-chain-id    = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+pallet-evm-precompile-simple = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+pallet-evm-precompile-modexp = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+pallet-evm-precompile-sha3fips = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
+pallet-hotfix-sufficients = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", default-features = false }
 
 # ─── Frontier Client (node-side) ──────────────────────────────────
-fc-api                 = { git = "https://github.com/polkadot-evm/frontier", branch = "master" }
-fc-consensus           = { git = "https://github.com/polkadot-evm/frontier", branch = "master" }
-fc-db                  = { git = "https://github.com/polkadot-evm/frontier", branch = "master", features = ["rocksdb"] }
+fc-api                 = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2" }
+fc-consensus           = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2" }
+fc-db                  = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2", features = ["rocksdb"] }
 
-fc-mapping-sync        = { git = "https://github.com/polkadot-evm/frontier", branch = "master" }
-fc-rpc                 = { git = "https://github.com/polkadot-evm/frontier", branch = "master" }
-fc-rpc-core            = { git = "https://github.com/polkadot-evm/frontier", branch = "master" }
-fc-storage             = { git = "https://github.com/polkadot-evm/frontier", branch = "master" }
+fc-mapping-sync        = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2" }
+fc-rpc                 = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2" }
+fc-rpc-core            = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2" }
+fc-storage             = { git = "https://github.com/polkadot-evm/frontier", rev = "0eeb4266ee76c577f833f0165bdbac8c0fedb2b2" }
 
 # ─── Local pallets ────────────────────────────────────────────────
 pallet-name-registry = { path = "pallets/pallet-name-registry", default-features = false }

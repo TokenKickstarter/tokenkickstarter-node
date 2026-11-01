@@ -77,7 +77,7 @@ check_ok "system_version" "$r" "
 import json,sys
 d=json.load(sys.stdin)
 v=d['result']
-assert v.startswith('0.1.15') or v.startswith('0.1.16') or v.startswith('0.1.17')
+assert v.startswith('0.1.15') or v.startswith('0.1.16') or v.startswith('0.1.17') or v.startswith('0.1.18') or v.startswith('0.1.19') or v.startswith('0.1.20')
 print(v)
 "
 
@@ -309,6 +309,44 @@ d=json.load(sys.stdin)
 assert d.get('genesis_hash','').lower()==os.environ['EXPECTED_GENESIS'].lower()
 print('genesis ok')
 "
+
+check_http "shard GET /health" "$SHARD/health" "
+import json,sys
+d=json.load(sys.stdin)
+assert d.get('status')=='ok'
+print('ok')
+"
+
+code=$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 -X POST "$SHARD/store" \
+  -H 'Content-Type: application/json' \
+  -d '{"recipient_id":"audit-smoke","message_id":"public-rpc-test","ciphertext":[1,2,3],"stored_at":1}' 2>/dev/null || echo 000)
+if [[ "$code" == "200" ]]; then
+  echo "PASS  shard POST /store — HTTP 200"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL  shard POST /store — HTTP $code"
+  FAIL=$((FAIL + 1))
+fi
+
+r=$(rpc tks_anchorStats)
+check_ok "tks_anchorStats" "$r" "
+import json,sys
+d=json.load(sys.stdin)
+r=d['result']
+assert r['total_anchors']>=0 and r['total_messages']>=0
+print(f\"anchors={r['total_anchors']} messages={r['total_messages']}\")
+"
+
+for path in /stats /hybrid/stats /discovery; do
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 "$SHARD$path" 2>/dev/null || echo 000)
+  if [[ "$code" == "200" ]]; then
+    echo "PASS  shard GET $path — HTTP 200"
+    PASS=$((PASS + 1))
+  else
+    echo "SKIP  shard GET $path — HTTP $code (deploy v0.1.20+ for aliases)"
+    SKIP=$((SKIP + 1))
+  fi
+done
 
 for path in /stats /hybrid/stats /discovery; do
   code=$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 "$RELAY$path" 2>/dev/null || echo 000)

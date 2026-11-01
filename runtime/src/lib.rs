@@ -131,7 +131,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     /// Nodes with different spec_version CANNOT sync with each other.
     /// A node with lower spec_version will refuse blocks from higher.
     /// Tolerance: ±4 versions (396–404 will still sync with warning).
-    spec_version: 412,
+    spec_version: 413,
     /// Bump when node implementation changes but state transition is same
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
@@ -789,18 +789,31 @@ fn weight_per_gas(gas_limit: u64, ratio: Perbill, millis: u64) -> u64 {
     max_weight.ref_time() / gas_limit
 }
 
+/// Block weight must track the **live** adaptive gas limit (not MAX), or authors can
+/// pack more EVM gas into a block than `BlockGasLimit` / Ethereum header `gasLimit`.
+pub struct AdaptiveWeightPerGas;
+
+impl frame_support::traits::Get<Weight> for AdaptiveWeightPerGas {
+    fn get() -> Weight {
+        let gas_limit = pallet_adaptive_gas::Pallet::<Runtime>::current_gas_limit()
+            .max(MIN_GAS_LIMIT);
+        Weight::from_parts(
+            weight_per_gas(
+                gas_limit,
+                NORMAL_DISPATCH_RATIO,
+                WEIGHT_MILLISECS_PER_BLOCK,
+            ),
+            0,
+        )
+    }
+}
+
 parameter_types! {
     /// The LIVE gas limit is read dynamically from AdaptiveGas::CurrentGasLimit storage
     /// via AdaptiveGasLimitGet — no static constant needed here.
     pub const GasLimitPovSizeRatio: u64 = GAS_POV_RATIO;
     pub const GasLimitStorageGrowthRatio: u64 = GAS_STORAGE_RATIO;
     pub PrecompilesValue: FrontierPrecompiles<Runtime> = FrontierPrecompiles::<_>::new();
-    pub WeightPerGas: Weight = Weight::from_parts(
-        // Use MAX gas limit for weight-per-gas so any valid tx is accepted;
-        // the actual cap is enforced dynamically by AdaptiveGas::CurrentGasLimit.
-        weight_per_gas(MAX_GAS_LIMIT, NORMAL_DISPATCH_RATIO, WEIGHT_MILLISECS_PER_BLOCK),
-        0,
-    );
 }
 
 // ─── Adaptive Gas Pallet Config ────────────────────────────────────
@@ -828,7 +841,7 @@ impl pallet_evm::Config for Runtime {
     type AccountProvider = pallet_evm::FrameSystemAccountProvider<Self>;
     type FeeCalculator = BaseFee;
     type GasWeightMapping = pallet_evm::FixedGasWeightMapping<Self>;
-    type WeightPerGas = WeightPerGas;
+    type WeightPerGas = AdaptiveWeightPerGas;
     type BlockHashMapping = pallet_ethereum::EthereumBlockHashMapping<Self>;
     type CallOrigin = pallet_evm::EnsureAccountId20;
     type WithdrawOrigin = pallet_evm::EnsureAccountId20;

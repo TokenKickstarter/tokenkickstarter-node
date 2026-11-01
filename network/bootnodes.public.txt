@@ -1,0 +1,3 @@
+# Public P2P bootnodes for TKS mainnet (fullnode). One entry per line.
+# Used by Docker `--bootnodes /bootnodes.txt` and published in tks-network-spec-raw.json.
+/ip4/144.91.122.247/tcp/30333/p2p/12D3KooWHBh2KuhrXaFcC6t7mEkHhekmphkLD3fmiUbyb5WPojNW

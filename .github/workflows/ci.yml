@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test-and-lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy (workspace libs)
+        run: cargo clippy -p cipher-shard-executor -p cipher-hybrid -p pallet-adaptive-gas -- -D warnings
+      - name: unit tests
+        run: cargo test -p cipher-shard-executor -p pallet-adaptive-gas -- --nocapture
