@@ -11,7 +11,7 @@
 //! 3. Adjust the gas limit by up to ±12.5% toward the target
 //! 4. Clamp between `MinGasLimit` and `MaxGasLimit`
 //!
-//! ```
+//! ```text
 //! if last_used > target:
 //!     new_limit = current_limit × (1 + Δ/8)   ← scale UP, max +12.5%/block
 //! else:
