@@ -734,8 +734,16 @@ parameter_types! {
     pub const ChallengeWindow: u32 = 7 * 24 * HOURS;
 }
 
+parameter_types! {
+    /// Burned from the anchor poster when a fraud proof or an invalid
+    /// `resolve_challenge` lands. 100 TKS.
+    pub const AnchorSlashAmount: u128 = 100 * TKS;
+}
+
 impl pallet_hyperswarm_anchor::Config for Runtime {
     type ChallengeWindow = ChallengeWindow;
+    type Currency = Balances;
+    type AnchorSlash = AnchorSlashAmount;
 }
 
 // ─── EVM / Frontier ────────────────────────────────────────────────

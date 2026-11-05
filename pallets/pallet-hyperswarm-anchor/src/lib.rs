@@ -26,10 +26,13 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use frame_support::pallet_prelude::*;
-    use frame_system::pallet_prelude::*;
-    use sp_runtime::Saturating;
+    use cipher_merkle::{count_is_false, merkle_root, MerkleLeaf};
     use codec::DecodeWithMemTracking;
+    use frame_support::pallet_prelude::*;
+    use frame_support::traits::Currency;
+    use frame_system::pallet_prelude::*;
+    use sp_runtime::traits::UniqueSaturatedInto;
+    use sp_runtime::Saturating;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -42,6 +45,36 @@ pub mod pallet {
         /// Default: 7 days = 100800 blocks at 6s/block.
         #[pallet::constant]
         type ChallengeWindow: Get<u32>;
+
+        /// Balance burned from the anchor poster on a proven false anchor.
+        type Currency: Currency<Self::AccountId>;
+
+        /// Slash amount in the smallest balance unit. The runtime sets 100 TKS.
+        #[pallet::constant]
+        type AnchorSlash: Get<u128>;
+    }
+
+    type BalanceOf<T> =
+        <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
+    /// One batch leaf. Lengths match `cipher_merkle::MAX_LEAF_FIELD_LEN`.
+    #[derive(Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Debug, PartialEq, Eq)]
+    pub struct AnchorLeaf {
+        pub msg_id: BoundedVec<u8, ConstU32<128>>,
+        pub sender_id: BoundedVec<u8, ConstU32<128>>,
+        pub recipient_id: BoundedVec<u8, ConstU32<128>>,
+        pub ciphertext_hash: [u8; 32],
+        pub stored_at: u64,
+    }
+
+    /// Poster and declared count for a root. Separate from [`AnchorEntry`] so a
+    /// runtime upgrade does not change anchors already stored on spec 412.
+    #[derive(Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Debug, PartialEq, Eq)]
+    pub struct AnchorCommitment<AccountId, BlockNumber> {
+        pub poster: AccountId,
+        pub message_count: u32,
+        pub posted_at: BlockNumber,
+        pub slashed: bool,
     }
 
     // ─── Types ─────────────────────────────────────────────────────────
@@ -134,6 +167,16 @@ pub mod pallet {
     #[pallet::getter(fn total_challenges)]
     pub type TotalChallenges<T: Config> = StorageValue<_, u32, ValueQuery>;
 
+    /// `dag_root_hash` → poster and declared count.
+    #[pallet::storage]
+    #[pallet::getter(fn anchor_by_root)]
+    pub type AnchorByRoot<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        [u8; 32],
+        AnchorCommitment<T::AccountId, BlockNumberFor<T>>,
+    >;
+
     // ─── Events ────────────────────────────────────────────────────────
 
     #[pallet::event]
@@ -156,6 +199,14 @@ pub mod pallet {
         ChallengeResolved {
             anchor_hash: [u8; 32],
             valid: bool,
+        },
+        /// Poster balance was burned for a false anchor.
+        AnchorSlashed {
+            dag_root_hash: [u8; 32],
+            poster: T::AccountId,
+            declared_count: u32,
+            proven_count: u32,
+            burned: u128,
         },
     }
 
@@ -181,6 +232,12 @@ pub mod pallet {
         ZeroMessageCount,
         /// Shard id is out of range for the active shard set.
         InvalidShardId,
+        /// Supplied leaves do not hash to the committed root.
+        InvalidMerkleProof,
+        /// Leaves reproduce the root and the declared count. Not fraud.
+        CountMatchesCommitment,
+        /// This root was already slashed.
+        AnchorAlreadySlashed,
     }
 
     // ─── Extrinsics ────────────────────────────────────────────────────
@@ -218,6 +275,10 @@ pub mod pallet {
                 pallet_shard_registry::Pallet::<T>::is_shard_validator(&who, shard_id),
                 Error::<T>::NotShardValidator,
             );
+            ensure!(
+                !AnchorByRoot::<T>::contains_key(dag_root_hash),
+                Error::<T>::AnchorAlreadyExists,
+            );
 
             let now = frame_system::Pallet::<T>::block_number();
 
@@ -234,6 +295,15 @@ pub mod pallet {
 
             // Store in history
             AnchorHistory::<T>::insert(shard_id, epoch, dag_root_hash);
+            AnchorByRoot::<T>::insert(
+                dag_root_hash,
+                AnchorCommitment {
+                    poster: who.clone(),
+                    message_count,
+                    posted_at: now,
+                    slashed: false,
+                },
+            );
 
             // Update counters
             ShardMessageCount::<T>::mutate(shard_id, |n| {
@@ -335,6 +405,12 @@ pub mod pallet {
                     Error::<T>::ChallengeNotPending
                 );
 
+                let poster = if !valid {
+                    AnchorByRoot::<T>::get(anchor_hash).map(|c| (c.poster, c.slashed))
+                } else {
+                    None
+                };
+
                 challenge.status = if valid {
                     ChallengeStatus::ResolvedValid
                 } else {
@@ -343,12 +419,93 @@ pub mod pallet {
 
                 Self::deposit_event(Event::ChallengeResolved { anchor_hash, valid });
 
-                // TODO: If invalid, slash the shard validators via pallet-staking
-                // TODO: If valid (false alarm), slash the challenger's deposit
+                if let Some((poster, already)) = poster {
+                    if !already {
+                        AnchorByRoot::<T>::mutate(anchor_hash, |maybe| {
+                            if let Some(commitment) = maybe {
+                                commitment.slashed = true;
+                            }
+                        });
+                        // Burns AnchorSlash. Challenges have no deposit, so a
+                        // false alarm does not slash the challenger.
+                        Self::slash_poster(anchor_hash, &poster, 0, 0);
+                    }
+                }
                 Ok(())
             })?;
 
             Ok(Pays::No.into())
+        }
+
+        /// Prove `message_count` is false for a committed root.
+        ///
+        /// The runtime recomputes the `tks-leaf-v1` Merkle root. If it matches
+        /// the commitment and `leaves.len() != message_count`, the poster's
+        /// slash amount is burned. A leaf set that does not reproduce the root
+        /// is rejected and slashes nobody.
+        #[pallet::call_index(3)]
+        #[pallet::weight(Weight::from_parts(500_000_000, 0)
+            .saturating_add(T::DbWeight::get().reads_writes(2, 2)))]
+        pub fn prove_false_anchor(
+            origin: OriginFor<T>,
+            dag_root_hash: [u8; 32],
+            leaves: BoundedVec<AnchorLeaf, ConstU32<512>>,
+        ) -> DispatchResultWithPostInfo {
+            let _who = ensure_signed(origin)?;
+            ensure!(!leaves.is_empty(), Error::<T>::ZeroMessageCount);
+
+            let plain: alloc::vec::Vec<MerkleLeaf> = leaves
+                .iter()
+                .map(|leaf| MerkleLeaf {
+                    msg_id: leaf.msg_id.to_vec(),
+                    sender_id: leaf.sender_id.to_vec(),
+                    recipient_id: leaf.recipient_id.to_vec(),
+                    ciphertext_hash: leaf.ciphertext_hash,
+                    stored_at: leaf.stored_at,
+                })
+                .collect();
+            ensure!(merkle_root(&plain) == dag_root_hash, Error::<T>::InvalidMerkleProof);
+
+            AnchorByRoot::<T>::try_mutate(dag_root_hash, |maybe| -> DispatchResult {
+                let commitment = maybe.as_mut().ok_or(Error::<T>::AnchorNotFound)?;
+                ensure!(!commitment.slashed, Error::<T>::AnchorAlreadySlashed);
+                let declared = commitment.message_count;
+                ensure!(
+                    count_is_false(declared, leaves.len()),
+                    Error::<T>::CountMatchesCommitment
+                );
+                let poster = commitment.poster.clone();
+                let proven = leaves.len() as u32;
+                commitment.slashed = true;
+                Self::slash_poster(dag_root_hash, &poster, declared, proven);
+                Ok(())
+            })?;
+
+            Ok(Pays::No.into())
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        /// Burn `AnchorSlash` from `poster`. Dropping the negative imbalance
+        /// reduces total issuance. Caller marks the commitment slashed.
+        fn slash_poster(
+            dag_root_hash: [u8; 32],
+            poster: &T::AccountId,
+            declared_count: u32,
+            proven_count: u32,
+        ) {
+            let requested: BalanceOf<T> = T::AnchorSlash::get().unique_saturated_into();
+            let (imbalance, missing) = <T as Config>::Currency::slash(poster, requested);
+            let burned = requested.saturating_sub(missing);
+            drop(imbalance);
+            let burned_u128: u128 = burned.unique_saturated_into();
+            Self::deposit_event(Event::AnchorSlashed {
+                dag_root_hash,
+                poster: poster.clone(),
+                declared_count,
+                proven_count,
+                burned: burned_u128,
+            });
         }
     }
 

@@ -28,3 +28,4 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 bytes = "1"
 cipher-hybrid = { path = "../cipher-hybrid" }
+cipher-merkle = { path = "../cipher-merkle" }

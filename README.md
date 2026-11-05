@@ -5,7 +5,7 @@
 [![Chain ID](https://img.shields.io/badge/Chain%20ID-7779-green)](https://chainlist.org)
 [![Build](https://github.com/TokenKickstarter/tokenkickstarter-node/actions/workflows/release.yml/badge.svg)](https://github.com/TokenKickstarter/tokenkickstarter-node/actions/workflows/release.yml)
 
-Layer-1 Substrate blockchain with full EVM compatibility, embedded Cipher relay and shard services, HyperSwarm libp2p mesh, adaptive gas limits, and native NFTs. **~1 s Aura blocks**; **GRANDPA finality typically ~4–5 s** under load (measure on your RPC).
+Layer-1 Substrate blockchain with full EVM compatibility, embedded Cipher relay and shard services, a libp2p mesh, adaptive gas limits, and native NFTs. **1-second blocks, finality in about 4–5 s** when idle (longer under load). Measure on your RPC before quoting a number.
 
 ---
 
@@ -29,11 +29,11 @@ TokenKickstarter (TKS) is a Layer-1 blockchain built on [Substrate](https://subs
 
 ### HyperSwarm Anchor
 
-**Implemented today:** Cipher relay + libp2p mesh (`cipher-relay`), batch **Merkle roots** on L1 via `pallet-hyperswarm-anchor`, and operator DA JSON under the node data dir. **Planned / partial:** full DAG verification, automated fisherman slashing, and multi-host shard fleets. On-chain DHT key registry for third-party apps is not the same as “trustless” anchor verification — see [network/ANCHOR-VERIFICATION.public.md](network/ANCHOR-VERIFICATION.public.md).
+**Implemented today:** Cipher relay + libp2p mesh (`cipher-relay`), a **batch Merkle root** on L1 (`dag_root_hash`), operator DA JSON, duplicate `msg_id` removal before the count is sealed, and `prove_false_anchor`, which burns the poster's slash when the leaves reproduce the root but the declared count does not. **Planned:** multi-host shard fleets. `dag_root_hash` is the Merkle root of one batch, not a Holepunch DHT key and not a general DAG. See [network/ANCHOR-VERIFICATION.public.md](network/ANCHOR-VERIFICATION.public.md).
 
 ### Adaptive Gas
 
-Block gas limits scale automatically based on real-time network load, from 1,500 to 80,000 transactions per block. The base fee adjusts each block, keeping costs near-zero during low traffic periods and rising under sustained congestion. No manual parameter tuning required.
+The header gas limit scales with load. Authors also stop at `SLOT_GAS_CAP` (35M gas, about 1,666 simple transfers) so a 1-second slot stays importable. The 4B figure is a configured ceiling, not a measured TPS. The base fee adjusts each block, keeping costs near-zero during low traffic periods and rising under sustained congestion. No manual parameter tuning required.
 
 ### Native NFT Collections (pallet-nfts)
 

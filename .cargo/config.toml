@@ -11,3 +11,7 @@
 rustflags = [
   "-C", "link-arg=--allow-undefined",
 ]
+
+# Nested `substrate-wasm-builder` cargo does not inherit the target rustflags above.
+[env]
+WASM_BUILD_RUSTFLAGS = "-C link-arg=--allow-undefined"

@@ -1,6 +1,6 @@
 # TKS Node — Wiki Home
 
-**TokenKickstarter (TKS)** is a Layer-1 blockchain built on [Substrate](https://substrate.io) with full Ethereum Virtual Machine compatibility, 1-second block finality, optional embedded Cipher relay and shard services, HyperSwarm libp2p mesh, on-chain DHT anchoring, adaptive gas, and native NFTs.
+**TokenKickstarter (TKS)** is a Layer-1 blockchain built on [Substrate](https://substrate.io) with full Ethereum Virtual Machine compatibility, **1-second blocks** and **GRANDPA finality in about 4–5 seconds** when idle (slower under load), optional embedded Cipher relay and shard services, a libp2p mesh, batch Merkle anchors, adaptive gas, and native NFTs.
 
 ---
 

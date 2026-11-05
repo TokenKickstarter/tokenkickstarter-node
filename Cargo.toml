@@ -9,6 +9,7 @@ members = [
     "calc-ecdsa",
     "cipher-relay",
     "cipher-hybrid",
+    "cipher-merkle",
     "cipher-shard-executor",
     "tools/cipher-loadtest",
 ]

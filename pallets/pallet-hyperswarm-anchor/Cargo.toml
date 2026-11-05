@@ -14,6 +14,7 @@ scale-info = { workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 pallet-shard-registry = { path = "../pallet-shard-registry", default-features = false }
+cipher-merkle = { path = "../../cipher-merkle", default-features = false }
 sp-runtime = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
@@ -30,6 +31,7 @@ std = [
     "frame-support/std",
     "frame-system/std",
     "pallet-shard-registry/std",
+    "cipher-merkle/std",
     "sp-runtime/std",
     "sp-core/std",
     "sp-io/std",

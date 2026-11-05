@@ -20,6 +20,6 @@ jobs:
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy (workspace libs)
-        run: cargo clippy -p cipher-shard-executor -p cipher-hybrid -p pallet-adaptive-gas -- -D warnings
+        run: cargo clippy -p cipher-merkle -p cipher-shard-executor -p cipher-hybrid -p pallet-adaptive-gas -- -D warnings
       - name: unit tests
-        run: cargo test -p cipher-shard-executor -p pallet-adaptive-gas -- --nocapture
+        run: cargo test -p cipher-merkle -p cipher-shard-executor -p cipher-hybrid -p pallet-adaptive-gas -- --nocapture

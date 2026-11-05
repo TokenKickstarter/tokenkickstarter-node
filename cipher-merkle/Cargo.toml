@@ -1,0 +1,14 @@
+[package]
+name = "cipher-merkle"
+version = "0.1.0"
+edition = "2021"
+description = "Canonical batch Merkle root shared by the shard executor and the anchor pallet"
+license = "MIT"
+authors.workspace = true
+
+[dependencies]
+sha2 = { version = "0.10", default-features = false }
+
+[features]
+default = ["std"]
+std = []

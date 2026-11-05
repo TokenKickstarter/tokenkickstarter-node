@@ -2,7 +2,9 @@
   "name": "TKS Network",
   "id": "tks_network",
   "chainType": "Live",
-  "bootNodes": [],
+  "bootNodes": [
+    "/ip4/144.91.122.247/tcp/30333/p2p/12D3KooWHBh2KuhrXaFcC6t7mEkHhekmphkLD3fmiUbyb5WPojNW"
+  ],
   "telemetryEndpoints": null,
   "protocolId": "tks-network",
   "properties": {

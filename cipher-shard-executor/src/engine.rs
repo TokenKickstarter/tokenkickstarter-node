@@ -7,6 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::Mutex;
 
+use cipher_merkle::{MAX_ANCHOR_LEAVES, MAX_LEAF_FIELD_LEN};
+
 use crate::anchor::AnchorSubmitPayload;
 use crate::batch::{CipherBatchMessage, DataAvailabilityBlob};
 use crate::da::write_blob;
@@ -36,6 +38,18 @@ impl Default for BatchEngine {
 
 impl BatchEngine {
     pub fn ingest(&mut self, msg: CipherBatchMessage) {
+        if msg.msg_id.len() > MAX_LEAF_FIELD_LEN
+            || msg.sender_id.len() > MAX_LEAF_FIELD_LEN
+            || msg.recipient_id.len() > MAX_LEAF_FIELD_LEN
+        {
+            log::warn!(
+                "dropping cipher message {}: id exceeds {MAX_LEAF_FIELD_LEN} bytes",
+                msg.msg_id
+            );
+            return;
+        }
+        // Relay `/store` forwards the same msg_id to `/ingest`. Without this,
+        // one client upload became two leaves (r6: 1,020 messages, 2,030 anchored).
         if !self.pending_ids.insert(msg.msg_id.clone()) {
             return;
         }
@@ -57,7 +71,8 @@ impl BatchEngine {
             return Ok(None);
         }
 
-        let messages = std::mem::take(&mut self.pending);
+        let take_n = self.pending.len().min(MAX_ANCHOR_LEAVES);
+        let messages: Vec<CipherBatchMessage> = self.pending.drain(..take_n).collect();
         for m in &messages {
             self.pending_ids.remove(&m.msg_id);
         }
@@ -116,6 +131,42 @@ mod tests {
         e.ingest(sample_msg("m1"));
         e.ingest(sample_msg("m1"));
         assert_eq!(e.pending_len(), 1);
+    }
+
+    #[test]
+    fn seal_counts_each_message_once_and_root_matches_leaves() {
+        let mut e = BatchEngine::default();
+        e.ingest(sample_msg("m1"));
+        e.ingest(sample_msg("m1"));
+        e.ingest(sample_msg("m2"));
+        let dir = std::env::temp_dir().join(format!("tks-seal-{}", std::process::id()));
+        let da = dir.join("da");
+        let anchors = dir.join("anchors");
+        std::fs::create_dir_all(&da).unwrap();
+        std::fs::create_dir_all(&anchors).unwrap();
+        let payload = e.seal(0, 1, &da, &anchors).unwrap().expect("sealed");
+        assert_eq!(payload.message_count, 2);
+        let root = compute_dag_root(&[sample_msg("m2"), sample_msg("m1")]);
+        assert_eq!(payload.dag_root_hash, format!("0x{}", hex::encode(root)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn seal_chunks_above_fraud_proof_bound() {
+        let mut e = BatchEngine::default();
+        for i in 0..(MAX_ANCHOR_LEAVES + 3) {
+            e.ingest(sample_msg(&format!("id-{i}")));
+        }
+        let dir = std::env::temp_dir().join(format!("tks-seal-chunk-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("da")).unwrap();
+        std::fs::create_dir_all(dir.join("anchors")).unwrap();
+        let first = e
+            .seal(0, 1, &dir.join("da"), &dir.join("anchors"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.message_count as usize, MAX_ANCHOR_LEAVES);
+        assert_eq!(e.pending_len(), 3);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
