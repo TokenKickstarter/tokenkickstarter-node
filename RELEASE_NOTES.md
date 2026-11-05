@@ -4,6 +4,22 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.23
+
+**Cipher discovery fix** — clients no longer treat shard ingest hosts as message relays.
+
+### Changes
+
+- **`GET /discovery`:** each `relays[]` entry includes **`message_relay`** (`false` for `shard.*` / `:4010` ingest vhosts).
+- Reference nginx snippet: **`network/nginx/relay.tokenkickstarter.com.conf`** (fast `/fetch` → `127.0.0.1:4002`).
+
+### Deploy
+
+1. Tag **v0.1.23**, upgrade VPS Docker binary (`VERSION=v0.1.23`).
+2. Apply relay vhost nginx (no long-poll buffering on `/fetch`).
+
+---
+
 ## v0.1.22
 
 **Cipher federated messaging** — instant WebSocket push + discovery; same runtime as v0.1.21 unless you also run `set_code`.

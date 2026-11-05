@@ -18,6 +18,22 @@ pub struct RelayEndpoint {
     pub libp2p_addrs: Vec<String>,
     pub region: Option<String>,
     pub priority: u8,
+    /// `true` only for cipher-relay mailbox APIs (`/store`, `/fetch`). Shard ingest hosts are `false`.
+    #[serde(default = "default_message_relay")]
+    pub message_relay: bool,
+}
+
+fn default_message_relay() -> bool {
+    true
+}
+
+/// Shard executor / ingest vhosts are not store-and-forward mailboxes.
+pub fn endpoint_is_mailbox_http(http: &str) -> bool {
+    let h = http.to_lowercase();
+    if h.contains("shard.") || h.contains(":4010") {
+        return false;
+    }
+    true
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -68,6 +84,7 @@ pub async fn build_discovery(
             libp2p_addrs: vec![],
             region: None,
             priority: 255,
+            message_relay: true,
         });
     }
 
@@ -83,6 +100,7 @@ pub async fn build_discovery(
                     libp2p_addrs: vec![v.endpoint.clone()],
                     region: Some(v.region),
                     priority: 200,
+                    message_relay: endpoint_is_mailbox_http(&http),
                 });
             }
         }
@@ -98,6 +116,7 @@ pub async fn build_discovery(
                 libp2p_addrs: ann.libp2p_addrs,
                 region: ann.region,
                 priority: 180,
+                message_relay: endpoint_is_mailbox_http(&ann.http_base),
             });
         }
     }
