@@ -67,6 +67,7 @@ impl CipherRegisterShardCmd {
             Some(n) => n,
             None => fetch_account_nonce(query_url, account)?,
         };
+        let (spec_version, transaction_version) = fetch_runtime_version(query_url)?;
 
         println!("Signer (AccountId20): {account:?}");
         println!("Submit URL: {}", self.submit_url);
@@ -80,14 +81,30 @@ impl CipherRegisterShardCmd {
                 region: GeoRegion::NorthAmerica,
                 endpoint,
             });
-            let ext = encode_signed_extrinsic(call, &pair, account, nonce, genesis_hash)
-                .map_err(|e| sc_cli::Error::Application(e.into()))?;
+            let ext = encode_signed_extrinsic(
+                call,
+                &pair,
+                account,
+                nonce,
+                genesis_hash,
+                spec_version,
+                transaction_version,
+            )
+            .map_err(|e| sc_cli::Error::Application(e.into()))?;
             submit_or_print(&self.submit_url, &ext, self.dry_run, "register_validator")?;
             nonce = nonce.saturating_add(1);
         }
 
         let call = RuntimeCall::ShardRegistry(ShardRegistryCall::force_rotate {});
-        let ext = encode_signed_extrinsic(call, &pair, account, nonce, genesis_hash)
+        let ext = encode_signed_extrinsic(
+            call,
+            &pair,
+            account,
+            nonce,
+            genesis_hash,
+            spec_version,
+            transaction_version,
+        )
             .map_err(|e| sc_cli::Error::Application(e.into()))?;
         submit_or_print(&self.submit_url, &ext, self.dry_run, "force_rotate")?;
 
@@ -124,6 +141,21 @@ fn resolve_seed(
             "--seed-file is required (path to ECDSA secret URI)".into(),
         )),
     }
+}
+
+pub(crate) fn fetch_runtime_version(url: &str) -> Result<(u32, u32), sc_cli::Error> {
+    let result = rpc_call(url, "state_getRuntimeVersion", serde_json::json!([]))?;
+    let spec = result
+        .get("specVersion")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| sc_cli::Error::Input("runtime specVersion missing".into()))?
+        as u32;
+    let tx = result
+        .get("transactionVersion")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| sc_cli::Error::Input("runtime transactionVersion missing".into()))?
+        as u32;
+    Ok((spec, tx))
 }
 
 pub(crate) fn fetch_genesis_hash(url: &str) -> Result<Hash, sc_cli::Error> {

@@ -11,7 +11,9 @@ use tks_runtime::{Hash, RuntimeCall, VERSION};
 use crate::extrinsic_sign::encode_signed_extrinsic;
 use crate::genesis_util::multisig_account_id;
 use crate::multisig_storage::wait_for_multisig_timepoint;
-use crate::shard_setup_cmd::{fetch_account_nonce, fetch_genesis_hash, rpc_call};
+use crate::shard_setup_cmd::{
+    fetch_account_nonce, fetch_genesis_hash, fetch_runtime_version, rpc_call,
+};
 
 #[derive(Debug, clap::Parser)]
 pub struct MultisigSudoSetCodeCmd {
@@ -84,6 +86,10 @@ impl MultisigSudoSetCodeCmd {
         println!("Multisig account: {multisig_addr:?}");
 
         let genesis_hash = fetch_genesis_hash(&self.rpc_url)?;
+        let (spec_version, transaction_version) = fetch_runtime_version(&self.rpc_url)?;
+        println!(
+            "On-chain spec_version={spec_version} tx_version={transaction_version} (signing with these, not binary VERSION)."
+        );
         let inner = RuntimeCall::Sudo(SudoCall::sudo {
             call: Box::new(RuntimeCall::System(SystemCall::set_code { code: wasm })),
         });
@@ -111,6 +117,8 @@ impl MultisigSudoSetCodeCmd {
             call1,
             nonce1,
             genesis_hash,
+            spec_version,
+            transaction_version,
             "member1 as_multi set_code",
         )?;
 
@@ -130,6 +138,8 @@ impl MultisigSudoSetCodeCmd {
             call2,
             nonce2,
             genesis_hash,
+            spec_version,
+            transaction_version,
             "member2 approve_as_multi set_code",
         )?;
 
@@ -162,10 +172,20 @@ fn submit(
     call: RuntimeCall,
     nonce: u32,
     genesis_hash: Hash,
+    spec_version: u32,
+    transaction_version: u32,
     label: &str,
 ) -> sc_cli::Result<()> {
-    let ext = encode_signed_extrinsic(call, pair, account, nonce, genesis_hash)
-        .map_err(|e| sc_cli::Error::Application(e.into()))?;
+    let ext = encode_signed_extrinsic(
+        call,
+        pair,
+        account,
+        nonce,
+        genesis_hash,
+        spec_version,
+        transaction_version,
+    )
+    .map_err(|e| sc_cli::Error::Application(e.into()))?;
     let hex_ext = format!("0x{}", hex::encode(ext));
     let hash = rpc_call(url, "author_submitExtrinsic", serde_json::json!([hex_ext]))?;
     println!("{label}: {hash}");

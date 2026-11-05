@@ -9,7 +9,9 @@ use tks_runtime::RuntimeCall;
 use crate::extrinsic_sign::encode_signed_extrinsic;
 use crate::genesis_util::multisig_account_id;
 use crate::multisig_storage::{list_pending_call_hashes, parse_account_id20};
-use crate::shard_setup_cmd::{fetch_account_nonce, fetch_genesis_hash, rpc_call};
+use crate::shard_setup_cmd::{
+    fetch_account_nonce, fetch_genesis_hash, fetch_runtime_version, rpc_call,
+};
 use pallet_multisig::Timepoint;
 use tks_runtime::BlockNumber;
 
@@ -93,6 +95,7 @@ impl MultisigCancelPendingCmd {
         }
 
         let genesis_hash = fetch_genesis_hash(&self.rpc_url)?;
+        let (spec_version, transaction_version) = fetch_runtime_version(&self.rpc_url)?;
         let max_weight = frame_support::weights::Weight::from_parts(5_000_000_000, 0);
 
         let other_for = |who: AccountId20| -> Vec<AccountId20> {
@@ -108,8 +111,16 @@ impl MultisigCancelPendingCmd {
                 timepoint,
                 call_hash,
             });
-            let ext = encode_signed_extrinsic(call, &pair, account, nonce, genesis_hash)
-                .map_err(|e| sc_cli::Error::Application(e.into()))?;
+            let ext = encode_signed_extrinsic(
+                call,
+                &pair,
+                account,
+                nonce,
+                genesis_hash,
+                spec_version,
+                transaction_version,
+            )
+            .map_err(|e| sc_cli::Error::Application(e.into()))?;
             let hex_ext = format!("0x{}", hex::encode(ext));
             let tx = rpc_call(
                 &self.rpc_url,

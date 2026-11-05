@@ -4,6 +4,22 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.21
+
+**Governance / VPS hotfix** — same runtime **spec 413** WASM as v0.1.20; no genesis change.
+
+### Fixes
+
+- **Extrinsic signing:** CLI multisig / fund / shard helpers sign with **on-chain** `spec_version` + `transaction_version` from RPC (fixes `Transaction has a bad signature` when binary is ahead of live runtime during `multisig-sudo-set-code`).
+
+### Deploy
+
+1. Tag **v0.1.21**, wait for GitHub Release assets.
+2. On VPS (`/opt/tks-docker`): `VERSION=v0.1.21 bash network/scripts/vps-docker-github-release.sh` (Docker binary only, no purge).
+3. Run **`live-multisig-sudo-set-code.sh`** with existing `config/tks_runtime.compact.compressed.wasm` if spec is still 412.
+
+---
+
 ## v0.1.20
 
 **R6 investor audit remediation.** Runtime **spec 413** (`set_code` required on live chain).

@@ -14,12 +14,16 @@ use crate::ethereum_sign::sign_ethereum_payload;
 type Block = tks_runtime::Block;
 
 /// Encode a signed extrinsic for `call` using an ECDSA dev/prod seed pair.
+/// `spec_version` / `transaction_version` must match **on-chain** runtime (from RPC), not the
+/// binary's compiled `VERSION`, so extrinsics validate before a `set_code` upgrade lands.
 pub fn encode_signed_extrinsic(
     call: RuntimeCall,
     signer: &ecdsa::Pair,
     account: AccountId20,
     nonce: u32,
     genesis_hash: Hash,
+    spec_version: u32,
+    transaction_version: u32,
 ) -> Result<Vec<u8>, String> {
     let extra: SignedExtra = (
         frame_system::CheckNonZeroSender::<tks_runtime::Runtime>::new(),
@@ -37,8 +41,8 @@ pub fn encode_signed_extrinsic(
         extra.clone(),
         (
             (),
-            tks_runtime::VERSION.spec_version,
-            tks_runtime::VERSION.transaction_version,
+            spec_version,
+            transaction_version,
             genesis_hash,
             genesis_hash,
             (),

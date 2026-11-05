@@ -7,7 +7,9 @@ use sp_core::ecdsa;
 use tks_runtime::{Balance, RuntimeCall, TKS};
 
 use crate::extrinsic_sign::encode_signed_extrinsic;
-use crate::shard_setup_cmd::{fetch_account_nonce, fetch_genesis_hash, rpc_call};
+use crate::shard_setup_cmd::{
+    fetch_account_nonce, fetch_genesis_hash, fetch_runtime_version, rpc_call,
+};
 
 #[derive(Debug, clap::Parser)]
 pub struct ProductionFundH160Cmd {
@@ -37,6 +39,7 @@ impl ProductionFundH160Cmd {
             .ok_or_else(|| sc_cli::Error::Input("amount overflow".into()))?;
 
         let genesis_hash = fetch_genesis_hash(&self.rpc_url)?;
+        let (spec_version, transaction_version) = fetch_runtime_version(&self.rpc_url)?;
         let nonce = fetch_account_nonce(&self.rpc_url, from)?;
         let call = RuntimeCall::Balances(BalancesCall::transfer_allow_death { dest: to, value });
         submit(
@@ -46,6 +49,8 @@ impl ProductionFundH160Cmd {
             call,
             nonce,
             genesis_hash,
+            spec_version,
+            transaction_version,
             &self.to,
         )
     }
@@ -75,10 +80,20 @@ fn submit(
     call: RuntimeCall,
     nonce: u32,
     genesis_hash: tks_runtime::Hash,
+    spec_version: u32,
+    transaction_version: u32,
     label: &str,
 ) -> sc_cli::Result<()> {
-    let ext = encode_signed_extrinsic(call, pair, account, nonce, genesis_hash)
-        .map_err(|e| sc_cli::Error::Application(e.into()))?;
+    let ext = encode_signed_extrinsic(
+        call,
+        pair,
+        account,
+        nonce,
+        genesis_hash,
+        spec_version,
+        transaction_version,
+    )
+    .map_err(|e| sc_cli::Error::Application(e.into()))?;
     let hex_ext = format!("0x{}", hex::encode(ext));
     let hash = rpc_call(url, "author_submitExtrinsic", serde_json::json!([hex_ext]))?;
     println!("Funded {label}: {hash}");
