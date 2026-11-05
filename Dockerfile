@@ -5,13 +5,10 @@ FROM paritytech/ci-linux:production AS builder
 
 WORKDIR /build
 
-# Copy the entire workspace to get both tks-substrate-node and cipher-relay
+# Repository root is the workspace (node, runtime, cipher-* crates).
 COPY . .
 
-WORKDIR /build/tks-substrate-node
-
-# Build the node with frontier EVM and embedded cipher-relay
-RUN cargo build --release
+RUN cargo build --release -p tks-chain-node
 
 # ===============================================
 # RUN STAGE
@@ -31,7 +28,7 @@ RUN useradd -m -u 1000 -U -s /bin/sh tks && \
     chown -R tks:tks /data
 
 WORKDIR /app
-COPY --from=builder /build/tks-substrate-node/target/release/tks-chain-node /app/tks-chain-node
+COPY --from=builder /build/target/release/tks-chain-node /app/tks-chain-node
 RUN chown -R tks:tks /app/tks-chain-node
 
 # Expose standard Substrate + Frontier EVM ports

@@ -21,10 +21,15 @@ cp "$SRC/network/tks-network-spec-raw.sha256" "$DIR/config/" 2>/dev/null || true
 cp "$SRC/network/bootnodes.public.txt" "$DIR/bootnodes.public.txt"
 grep -v '^#' "$DIR/bootnodes.public.txt" | grep -v '^[[:space:]]*$' > "$DIR/bootnodes.txt"
 
-echo ">> Docker build context: $SRC"
-export TKS_BUILD_CONTEXT="$SRC"
+echo ">> Build release binary (Docker builder image; ~30–60 min first time)"
+cd "$SRC"
+docker build -t tks-node-build:"$TAG" -f Dockerfile .
+cp -a "$DIR/config/tks-chain-node" "$DIR/config/tks-chain-node.bak.$(date +%Y%m%d%H%M)" 2>/dev/null || true
+docker create --name tks-bin-extract-"$$" tks-node-build:"$TAG" >/dev/null
+docker cp "tks-bin-extract-$$:/app/tks-chain-node" "$DIR/config/tks-chain-node"
+docker rm "tks-bin-extract-$$" >/dev/null
+
 cd "$DIR"
-docker compose build
 docker compose up -d --force-recreate
 
 sleep 12
