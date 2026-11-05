@@ -1182,8 +1182,9 @@ dependencies = [
 
 [[package]]
 name = "cipher-relay"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
+ "base64 0.22.1",
  "bincode",
  "bytes",
  "chrono",
@@ -11057,7 +11058,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tks-chain-node"
-version = "0.1.20"
+version = "0.1.22"
 dependencies = [
  "cipher-hybrid",
  "cipher-relay",

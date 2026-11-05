@@ -218,6 +218,8 @@ pub struct CipherStackConfig {
     pub enable_hyperswarm: bool,
     pub hyperswarm_port: u16,
     pub public_relay_url: Option<String>,
+    pub public_signal_ws: Option<String>,
+    pub signal_push_url: Option<String>,
     pub hyperswarm_bootnodes: Vec<String>,
     pub hyperswarm_region: String,
     pub auto_post_anchor: bool,
@@ -670,6 +672,11 @@ pub fn new_full(
                     enable_hyperswarm: cipher_relay.enable_hyperswarm,
                     hyperswarm_port: cipher_relay.hyperswarm_port,
                     public_relay_url: cipher_relay.public_relay_url.clone(),
+                    public_signal_ws: cipher_relay.public_signal_ws.clone(),
+                    signal_push_url: cipher_relay
+                        .signal_push_url
+                        .clone()
+                        .or_else(|| Some("http://127.0.0.1:4003/internal/push".into())),
                     chain_rpc_url: Some(chain_rpc_url),
                     hyperswarm_bootnodes: cipher_relay.hyperswarm_bootnodes.clone(),
                     hyperswarm_region: Some(cipher_relay.hyperswarm_region.clone()),

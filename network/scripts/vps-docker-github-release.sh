@@ -16,15 +16,25 @@ trap 'rm -rf "$WORKDIR"' EXIT
 echo ">> Download ${BASE}/${TAR}"
 curl -fsSL -o "${WORKDIR}/${TAR}" "${BASE}/${TAR}"
 
-if curl -fsSL -o "${WORKDIR}/SHA256SUMS.txt" "${BASE}/SHA256SUMS.txt" 2>/dev/null; then
-  (cd "$WORKDIR" && grep " ${TAR}$" SHA256SUMS.txt | sha256sum -c -)
-else
-  echo ">> WARN: no SHA256SUMS.txt on release; skipping checksum"
-fi
-
 echo ">> Install binary"
 tar -xzf "${WORKDIR}/${TAR}" -C "$WORKDIR"
 BIN="$WORKDIR/tks-chain-node-linux-${ARCH}"
+
+# Release SHA256SUMS lists unpacked binary names (e.g. tks-chain-node-v0.1.21-linux-amd64).
+if curl -fsSL -o "${WORKDIR}/SHA256SUMS.txt" "${BASE}/SHA256SUMS.txt" 2>/dev/null; then
+  case "$ARCH" in
+    x86_64) SUMS_NAME="tks-chain-node-${VERSION}-linux-amd64" ;;
+    arm64|aarch64) SUMS_NAME="tks-chain-node-${VERSION}-linux-arm64" ;;
+    *) SUMS_NAME="" ;;
+  esac
+  if [[ -n "$SUMS_NAME" ]] && grep -q " ${SUMS_NAME}$" "${WORKDIR}/SHA256SUMS.txt"; then
+    (cd "$WORKDIR" && grep " ${SUMS_NAME}$" SHA256SUMS.txt | sha256sum -c -)
+  else
+    echo ">> WARN: no SHA256SUMS entry for ${SUMS_NAME}; skipping checksum"
+  fi
+else
+  echo ">> WARN: no SHA256SUMS.txt on release; skipping checksum"
+fi
 install -d "$DIR/config"
 cp -a "$DIR/config/tks-chain-node" "$DIR/config/tks-chain-node.bak.$(date +%Y%m%d%H%M)" 2>/dev/null || true
 install -m 755 "$BIN" "$DIR/config/tks-chain-node"

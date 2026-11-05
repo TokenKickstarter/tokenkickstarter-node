@@ -4,6 +4,31 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.22
+
+**Cipher federated messaging** — instant WebSocket push + discovery; same runtime as v0.1.21 unless you also run `set_code`.
+
+### Features
+
+- **Relay → signal push:** after `POST /store`, relay notifies co-located signal server (`/internal/push`) for ~100ms delivery to online peers.
+- **Discovery:** `GET /discovery` advertises `signal_ws` / `self_signal_ws` per validator (no fixed hostname required).
+- **CLI flags:** `--cipher-public-signal-ws`, `--cipher-signal-push-url` (default `http://127.0.0.1:4003/internal/push`).
+- **`network/vps-signal-server`:** Node.js WS hub + internal push endpoint (deploy beside relay on :4003).
+
+### Fixes
+
+- **HTTP `/fetch`:** JSON error path no longer breaks the HTTP handler.
+- **VPS Docker script:** SHA256 verify uses unpacked binary name from release `SHA256SUMS.txt`.
+
+### Deploy
+
+1. Tag **v0.1.22**, wait for GitHub Release assets.
+2. On VPS: `VERSION=v0.1.22 bash network/scripts/vps-docker-github-release.sh`.
+3. `cd network/vps-signal-server && ./deploy.sh` (or refresh container) and nginx `/ws` → :4003.
+4. Start node with `--cipher-public-relay-url` and `--cipher-public-signal-ws` pointing at your domain.
+
+---
+
 ## v0.1.21
 
 **Governance / VPS hotfix** — same runtime **spec 413** WASM as v0.1.20; no genesis change.

@@ -1,6 +1,6 @@
 [package]
 name = "cipher-relay"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 description = "Cipher Storage Swarm Relay — libp2p message relay running alongside TKS node"
 
@@ -31,6 +31,7 @@ bincode = "1.3"
 
 # Hex encoding
 hex = "0.4"
+base64 = "0.22"
 
 # Logging
 log = "0.4"

@@ -60,9 +60,17 @@ pub struct Cli {
     #[arg(long, default_value_t = 4001)]
     pub cipher_hyperswarm_port: u16,
 
-    /// Public HTTPS base advertised to peers (e.g. https://relay.tokenkickstarter.com).
+    /// Public HTTPS base advertised to peers (GET /discovery).
     #[arg(long)]
     pub cipher_public_relay_url: Option<String>,
+
+    /// Public WSS URL for instant push (e.g. wss://my-node.example/ws). Defaults to relay URL + `/ws`.
+    #[arg(long)]
+    pub cipher_public_signal_ws: Option<String>,
+
+    /// Local HTTP URL for relay→signal push after store (default http://127.0.0.1:4003/internal/push).
+    #[arg(long)]
+    pub cipher_signal_push_url: Option<String>,
 
     /// Comma-separated libp2p bootmultiaddrs for HyperSwarm.
     #[arg(long, value_delimiter = ',')]

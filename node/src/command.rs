@@ -233,6 +233,8 @@ pub fn run() -> sc_cli::Result<()> {
                 enable_hyperswarm: cli.enable_cipher_hyperswarm,
                 hyperswarm_port: cli.cipher_hyperswarm_port,
                 public_relay_url: cli.cipher_public_relay_url.clone(),
+                public_signal_ws: cli.cipher_public_signal_ws.clone(),
+                signal_push_url: cli.cipher_signal_push_url.clone(),
                 hyperswarm_bootnodes: cli.cipher_hyperswarm_bootnodes.clone(),
                 hyperswarm_region: cli.cipher_hyperswarm_region.clone(),
                 auto_post_anchor: cli.cipher_auto_post_anchor,

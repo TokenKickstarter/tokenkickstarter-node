@@ -1,0 +1,9 @@
+services:
+  cipher-signal-server:
+    build: .
+    container_name: cipher-signal-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4003:4003"
+    environment:
+      - PORT=4003
