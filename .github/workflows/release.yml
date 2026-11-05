@@ -228,6 +228,9 @@ jobs:
         run: cargo build --release
 
       - name: Generate chainspec files
+        env:
+          # Release job ships optional Alice/Bob *reference* chainspecs only (not mainnet).
+          TKS_ALLOW_DEV_CHAIN: "1"
         run: |
           # Dev/local reference (Alice/Bob)
           ./target/release/tks-chain-node \
