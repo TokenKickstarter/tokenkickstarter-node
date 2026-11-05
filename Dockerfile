@@ -6,6 +6,7 @@ FROM rust:1-bookworm AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     clang \
+    libclang-dev \
     cmake \
     git \
     libssl-dev \
