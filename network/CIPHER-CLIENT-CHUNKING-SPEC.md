@@ -183,6 +183,6 @@ Reference: `client-core` tests in `file_chunker.rs`.
 
 ## 13. Related docs
 
-- [HYPERSWARM-SECURITY.md](./HYPERSWARM-SECURITY.md)
 - [HYPERSWARM-PEERS.md](./HYPERSWARM-PEERS.md)
+- [SHARD-AND-RELAY.public.md](./SHARD-AND-RELAY.public.md)
 - [CIPHER-TKS-THROUGHPUT-SPEC.md](./CIPHER-TKS-THROUGHPUT-SPEC.md)

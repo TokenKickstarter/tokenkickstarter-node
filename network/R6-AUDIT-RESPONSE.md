@@ -28,6 +28,6 @@
 ## Deploy checklist (v0.1.20)
 
 1. Merge **wip/r6-audit-fixes** → **main**, push (no tag required).
-2. VPS: `git pull` + [`vps-upgrade-v0.1.20.sh`](scripts/vps-upgrade-v0.1.20.sh) — **no purge**.
+2. VPS: `VERSION=v0.1.20 bash network/scripts/vps-docker-github-release.sh` — **no purge**.
 3. Runtime **set_code** to spec **413** WASM (multisig → sudo); confirm `state_getRuntimeVersion.specVersion == 413`.
 4. Run `R6_FUNDER_SEED=… ./network/scripts/run-r6-20k-evidence.sh` on VPS; attach `network/r6-evidence-*` to investor packet.

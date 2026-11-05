@@ -12,7 +12,7 @@
 
 1. **No unplanned genesis resets.** Further regen requires multisig governance, published rationale, and **≥ 7 calendar days** notice on releases + [`GENESIS-ALLOCATION.public.md`](./GENESIS-ALLOCATION.public.md).
 2. **Release cadence:** at most **one** tagged mainnet Docker upgrade per **72 hours** unless security-critical; batch audit fixes into minor releases.
-3. **Investor comms:** each release includes [`RELEASE_NOTES.md`](../RELEASE_NOTES.md) entry + link to [`AUDIT-OPEN-ITEMS.md`](./AUDIT-OPEN-ITEMS.md) when audit-related.
+3. **Investor comms:** each release includes [`RELEASE_NOTES.md`](../RELEASE_NOTES.md) and, when audit-related, [`R6-AUDIT-RESPONSE.md`](./R6-AUDIT-RESPONSE.md).
 4. **Single production fullnode** hosts relay + shard + anchor submitter; validators do not duplicate anchor posts.
 
 ## Current canonical artifacts

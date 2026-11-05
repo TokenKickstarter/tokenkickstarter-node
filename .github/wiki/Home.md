@@ -26,11 +26,11 @@
 
 | Document | Topic |
 |----------|--------|
-| [HYBRID-THROUGHPUT.md](../../network/HYBRID-THROUGHPUT.md) | Hybrid 1k–500k Cipher throughput |
+| [CIPHER-TKS-THROUGHPUT-SPEC.md](../../network/CIPHER-TKS-THROUGHPUT-SPEC.md) | Hybrid 1k–500k Cipher throughput |
 | [HYPERSWARM-PEERS.md](../../network/HYPERSWARM-PEERS.md) | Multi-relay discovery |
-| [HYPERSWARM-SECURITY.md](../../network/HYPERSWARM-SECURITY.md) | Ciphertext privacy |
+| [SHARD-AND-RELAY.public.md](../../network/SHARD-AND-RELAY.public.md) | Relay vs shard roles |
 | [CIPHER-CLIENT-CHUNKING-SPEC.md](../../network/CIPHER-CLIENT-CHUNKING-SPEC.md) | Media chunking |
-| [NAME-REGISTRY-THROUGHPUT.md](../../network/NAME-REGISTRY-THROUGHPUT.md) | Username batch registration |
+| [R6-AUDIT-RESPONSE.md](../../network/R6-AUDIT-RESPONSE.md) | Audit remediation status |
 
 ---
 

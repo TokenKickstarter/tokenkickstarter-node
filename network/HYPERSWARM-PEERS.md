@@ -51,7 +51,7 @@ The optional `hybrid` object in `/discovery` mirrors `GET /hybrid/stats`. Fields
 - On `/fetch`: local store + **HyperSwarm pull** from peers before empty response
 - HTTP fanout to up to 8 relays from `/discovery` (push backup)
 
-See [HYPERSWARM-SECURITY.md](./HYPERSWARM-SECURITY.md) — peers **cannot decrypt** ciphertext.
+HyperSwarm relays only gossip **chunk hashes and availability**; **ciphertext** stays encrypted end-to-end — peers **cannot decrypt** message contents without client keys.
 
 ## nginx
 

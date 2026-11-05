@@ -53,7 +53,7 @@ Standard Ethereum JSON-RPC API. Deploy any Solidity contract, use MetaMask, conn
 
 ### Cipher messaging (embedded data plane)
 
-The node binary can run an HTTP Cipher relay, shard executor, and HyperSwarm libp2p mesh alongside Substrate and Frontier. **`cipher-hybrid` exposes configured ceilings up to ~500k aggregate msg/s** (design target across logical shards); **measured** throughput is `GET /hybrid/stats` → `measured_tps` / `lifetime_ingress`. Layer-1 EVM TPS and Cipher messaging are separate metrics — see [network/HYBRID-THROUGHPUT.md](network/HYBRID-THROUGHPUT.md).
+The node binary can run an HTTP Cipher relay, shard executor, and HyperSwarm libp2p mesh alongside Substrate and Frontier. **`cipher-hybrid` exposes configured ceilings up to ~500k aggregate msg/s** (design target across logical shards); **measured** throughput is `GET /hybrid/stats` → `measured_tps` / `lifetime_ingress`. Layer-1 EVM TPS and Cipher messaging are separate metrics — see [network/CIPHER-TKS-THROUGHPUT-SPEC.md](network/CIPHER-TKS-THROUGHPUT-SPEC.md).
 
 | Service | Default port | Role |
 |---------|--------------|------|
@@ -235,14 +235,12 @@ Download the release binary for your platform from [Releases](https://github.com
 | Document | Description |
 |----------|-------------|
 | [network/README.md](network/README.md) | Node operator guide, seeds, validators |
-| [network/DNS-SETUP.md](network/DNS-SETUP.md) | Multi-region DNS bootnodes |
 | [network/docker-compose-live.yml](network/docker-compose-live.yml) | Full node + validators (production layout) |
-| [network/HYBRID-THROUGHPUT.md](network/HYBRID-THROUGHPUT.md) | Cipher hybrid 1k–500k controller |
 | [network/HYPERSWARM-PEERS.md](network/HYPERSWARM-PEERS.md) | Multi-relay discovery and mesh |
-| [network/HYPERSWARM-SECURITY.md](network/HYPERSWARM-SECURITY.md) | Ciphertext privacy model |
 | [network/CIPHER-CLIENT-CHUNKING-SPEC.md](network/CIPHER-CLIENT-CHUNKING-SPEC.md) | Client media chunking (512 KiB) |
 | [network/CIPHER-TKS-THROUGHPUT-SPEC.md](network/CIPHER-TKS-THROUGHPUT-SPEC.md) | Throughput targets and benchmarks |
-| [network/NAME-REGISTRY-THROUGHPUT.md](network/NAME-REGISTRY-THROUGHPUT.md) | `@username` batch registration |
+| [network/SHARD-AND-RELAY.public.md](network/SHARD-AND-RELAY.public.md) | Relay vs shard roles |
+| [network/R6-AUDIT-RESPONSE.md](network/R6-AUDIT-RESPONSE.md) | Audit remediation status |
 | [tools/cipher-loadtest/README.md](tools/cipher-loadtest/README.md) | Load test harness |
 | [RELEASE_NOTES.md](RELEASE_NOTES.md) | Version history and upgrade notes |
 

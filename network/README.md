@@ -78,16 +78,13 @@ Double-click `start-node.bat`
 
 ---
 
-## Running Bootnodes (For Team)
+## Running Bootnodes (operators)
 
-See [DNS-SETUP.md](./DNS-SETUP.md) for full DNS configuration guide.
-
-Quick summary:
-1. Get 3 VPS servers (~$5/mo each — Hetzner, Vultr, DigitalOcean)
-2. Point DNS A records → server IPs (Cloudflare, DNS-only mode)
-3. Upload binary + chainspec + bootnode key to each server
-4. Run `./start-bootnode-1.sh` (Server 1), `2`, `3`
-5. Open port 30333 in firewall
+1. Generate a stable libp2p node key per host: `./target/release/tks-chain-node key generate-node-key` → save as `bootnode.key` (never commit).
+2. Point DNS **A** records at the host (Cloudflare **DNS only** for P2P seeds is recommended).
+3. Ship binary + [`tks-network-spec-raw.json`](./tks-network-spec-raw.json) + `bootnode.key`.
+4. Run [`start-bootnode.sh`](./start-bootnode.sh) or `server-setup.sh bootnode`.
+5. Open TCP **30333**; publish the multiaddr in [`bootnodes.public.txt`](./bootnodes.public.txt) via release/chainspec update.
 
 ---
 
@@ -123,23 +120,21 @@ Manages node as a systemd service with auto-restart.
 |------|---------|
 | `tks-testnet-spec-raw.json` | **Ship this** — raw genesis chainspec |
 | `tks-testnet-spec.json` | Human-readable chainspec |
-| `bootnodes/bootnode-1.key` | Server 1 private key — **keep secret** |
-| `bootnodes/bootnode-2.key` | Server 2 private key — **keep secret** |
-| `bootnodes/bootnode-3.key` | Server 3 private key — **keep secret** |
+| `bootnode.key` | Bootnode libp2p key — **generate per server, never commit** |
+| `bootnodes.public.txt` | Published P2P multiaddrs for syncers |
 | `start-node.sh` | Mac/Linux full node |
 | `start-node.bat` | Windows full node |
 | `start-validator.sh` | Mac/Linux validator |
-| `start-bootnode-1.sh` | Server 1 bootnode |
-| `start-bootnode-2.sh` | Server 2 bootnode |
-| `start-bootnode-3.sh` | Server 3 bootnode |
+| `start-bootnode.sh` | Single-host bootnode launcher |
 | `inject-validator-keys.sh` | Generate session keys |
 | `install.sh` | One-liner installer |
 | `server-setup.sh` | Linux systemd install |
 | `purge-chain.sh` | Reset chain data |
 | `docker-compose.yml` | Docker deployment |
 | `docker-compose-live.yml` | Production full node + validators (Cipher flags) |
-| `DNS-SETUP.md` | DNS configuration guide |
-| `HYBRID-THROUGHPUT.md` | Cipher hybrid throughput |
+| `CIPHER-TKS-THROUGHPUT-SPEC.md` | Cipher hybrid throughput targets |
+| `nginx/` | Reference snippets for public RPC + relay hosts |
+| `vps-signal-server/` | Optional WebSocket push sidecar for relays |
 | `HYPERSWARM-PEERS.md` | Relay mesh and discovery |
 | `CIPHER-CLIENT-CHUNKING-SPEC.md` | Client chunking for large media |
 

@@ -6,7 +6,21 @@ Genesis hash: **`0x28a554eb58356946b3ac7ce61fa1562cbda2dd1171ee8c7719140e0e33a2e
 
 SHA-256 (raw spec): **`b7ef634e040c1cacac6c3b78d00981a5f1cbce0d4023e5f708e388750560a103`** (v0.1.19 — public bootnodes; genesis unchanged)
 
-Full bucket table: [`GENESIS-BALANCES.md`](./GENESIS-BALANCES.md).
+## Allocation buckets (1B TKS)
+
+| Bucket | TKS |
+|--------|-----|
+| Team | 150,000,000 |
+| Bridge | 300,000,000 |
+| Ecosystem | 150,000,000 |
+| On-chain treasury | 100,000,000 |
+| Validators pool | 50,000,000 |
+| Public sale | 150,000,000 |
+| Airdrop | 100,000,000 |
+| Validator stashes | 150,000 + 100,000 bond each (2 validators) |
+| Multisig sudo | 1,000 (dispatch deposits) |
+
+H160 derivation must match Frontier (Keccak of uncompressed secp256k1 pubkey). Regenerate with `network/scripts/bootstrap-production-genesis.sh` and audit with `network/scripts/audit-genesis-addresses.py`.
 
 ## Core roles (v0.1.17 regen)
 

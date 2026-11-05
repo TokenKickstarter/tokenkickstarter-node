@@ -85,7 +85,7 @@ pub fn development_config() -> Result<ChainSpec, String> {
         get_account_id_from_seed("Alice"),
         // ── DEV GENESIS — 20 Billion TKS total supply ──────────────────
         // Replace these with real wallet addresses for mainnet.
-        // See network/GENESIS-AND-BRIDGE.md for mainnet allocation guide.
+        // See network/GENESIS-ALLOCATION.public.md for mainnet allocation guide.
         vec![
             // Team / Foundation (10% = 2B TKS) — 4yr vest, 1yr cliff on mainnet
             (get_account_id_from_seed("Alice"), 2_000_000_000 * TKS),

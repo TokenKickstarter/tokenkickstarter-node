@@ -91,7 +91,7 @@ R4 audit closure — **no genesis change** (same `0x28a554…`).
 - **Published bootnodes:** `tks-network-spec-raw.json` + [`network/bootnodes.public.txt`](network/bootnodes.public.txt) use public VPS P2P (`144.91.122.247:30333`); `build-tks-network-spec.sh` overwrites dev `127.0.0.1` from `build-spec`.
 - **Multisig:** `multisig-sudo-force-rotate` waits for on-chain **timepoint** before `approve_as_multi`; **`production multisig-list-pending`** / **`multisig-cancel-pending`** for stuck calls.
 - **Anchors:** shard batch engine **dedupes `msg_id`** (relay + forwarded ingest no longer double-count on L1).
-- **Docs:** [`network/AUDIT-OPEN-ITEMS.md`](network/AUDIT-OPEN-ITEMS.md), [`SUDO-MULTISIG.public.md`](network/SUDO-MULTISIG.public.md) (regen), [`MAINNET-STABILITY.md`](network/MAINNET-STABILITY.md), [`R4-L1-REBASELINE.md`](network/R4-L1-REBASELINE.md).
+- **Docs:** [`SUDO-MULTISIG.public.md`](network/SUDO-MULTISIG.public.md) (regen), [`MAINNET-STABILITY.md`](network/MAINNET-STABILITY.md), [`R6-AUDIT-RESPONSE.md`](network/R6-AUDIT-RESPONSE.md).
 
 ### Deploy
 
@@ -110,7 +110,7 @@ R4 audit closure — **no genesis change** (same `0x28a554…`).
 
 - **`tks_anchorStats` RPC** — `total_anchors`, `total_messages` for audits.
 - **Shard executor `POST /store`** — same JSON as relay (compat for `shard.*` vhosts); prefer relay `/store` in production.
-- Wallet tooling: `generate-production-wallets.sh`, `vps-regen-v0.1.17.sh`.
+- Wallet tooling: `generate-production-wallets.sh`, `bootstrap-production-genesis.sh`.
 
 ### Genesis / sudo
 
@@ -120,7 +120,7 @@ R4 audit closure — **no genesis change** (same `0x28a554…`).
 ### Deploy
 
 1. Publish/release includes **`tks-network-spec-raw.json`** + SHA-256 sidecar.
-2. On VPS: copy **production-keys/** (secrets, never in git), raw spec → `config/tks-testnet-spec-raw.json`, run **`network/scripts/vps-regen-v0.1.17.sh`** (purge + session keys + v0.1.17 binary).
+2. On VPS: copy **production-keys/** (secrets, never in git), raw spec → `config/chainspec-raw.json`, then **`network/scripts/vps-chain-reset-and-up.sh`** or a tagged **`vps-docker-github-release.sh`** (see release section for that version).
 3. Re-run **`public-rpc-test.sh`** with new `EXPECTED_GENESIS` from `chain_getBlockHash(0)`.
 
 ---

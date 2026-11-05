@@ -28,7 +28,11 @@ network/bootnodes/*.key
 network/keystore/
 keystore/
 network/production-keys/
+network/production-keys-regen-*/
 network/production-genesis-input.json
+network/php/
+network/nginx/aapanel-proxy-catalog-rpc.conf
+network/nginx/rpc.tokenkickstarter.com-lua.conf
 network/tks-network-spec.json
 network/tks-network-spec-raw.json
 

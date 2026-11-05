@@ -231,7 +231,7 @@ Open-source harness (repo path TBD: `tools/cipher-loadtest/`):
 | `pallets/pallet-shard-registry/` | `register_validator`, epoch rotation, `ShardMap` |
 | `pallets/pallet-hyperswarm-anchor/` | `post_anchor`, `submit_challenge`, counters |
 | `pallets/pallet-adaptive-gas/` | L1 gas limit elasticity |
-| `network/PERF-AND-SHARDS.md` | L1 vs shard summary |
+| `network/SHARD-AND-RELAY.public.md` | Relay vs shard / L1 anchor summary |
 
 ---
 

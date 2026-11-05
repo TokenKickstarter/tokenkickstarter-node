@@ -31,7 +31,7 @@ Large files: [CIPHER-CLIENT-CHUNKING-SPEC.md](../../network/CIPHER-CLIENT-CHUNKI
 
 ## Hybrid throughput (default)
 
-Adaptive **~1k → 500k** aggregate Cipher TPS via `cipher-hybrid` (see [`network/HYBRID-THROUGHPUT.md`](../../network/HYBRID-THROUGHPUT.md)). Check `GET /hybrid/stats` on relay `:4002` or shard `:4010`.
+Adaptive **~1k → 500k** aggregate Cipher TPS via `cipher-hybrid` (see [`network/CIPHER-TKS-THROUGHPUT-SPEC.md`](../../network/CIPHER-TKS-THROUGHPUT-SPEC.md)). Check `GET /hybrid/stats` on relay `:4002` or shard `:4010`.
 
 ## Embedded in `tks-chain-node` (default)
 
