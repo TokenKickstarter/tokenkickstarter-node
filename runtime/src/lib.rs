@@ -229,9 +229,10 @@ impl OnUnbalanced<fungible::Credit<<Runtime as frame_system::Config>::AccountId,
 // blocks, governance can vote to increase BLOCK_GAS_LIMIT via on-chain upgrade.
 // No hard-fork needed — spec_version bump + WASM upgrade.
 
-/// 700ms compute budget per 1-second block (70% of block time for EVM).
-/// Leaves 300ms for P2P propagation + GRANDPA voting at 10k TPS.
-/// Validators need >= 1Gbps bandwidth and >= 8 CPU cores to sustain this.
+/// Documented authoring budget inside a 1-second slot. Not the EVM weight
+/// divisor: that divisor is the live normal-class max. Using 700ms against a
+/// 7s block budget under-counts weight and `gasUsed` exceeds `gasLimit`.
+#[allow(dead_code)]
 const WEIGHT_MILLISECS_PER_BLOCK: u64 = 700;
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
@@ -240,7 +241,8 @@ parameter_types! {
     pub const Version: RuntimeVersion = VERSION;
     pub BlockWeights: frame_system::limits::BlockWeights =
         frame_system::limits::BlockWeights::with_sensible_defaults(
-            // 7× WEIGHT_REF_TIME_PER_SECOND matches 700ms compute budget
+            // ~7s of ref-time so staking/sudo extrinsics still fit. EVM inclusion
+            // is capped by AdaptiveWeightPerGas + SLOT_GAS_CAP, not by this number.
             Weight::from_parts(7u64 * frame_support::weights::constants::WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
             NORMAL_DISPATCH_RATIO,
         );
@@ -780,28 +782,26 @@ const GAS_STORAGE_RATIO: u64 = 0;     // 0 = disabled (storage growth uncapped p
 const MIN_GAS_LIMIT: u64  =    50_000_000; //  50M →  ~1,000 TPS (hybrid idle floor)
 const MAX_GAS_LIMIT: u64  = 4_000_000_000; //   4B → ~80,000 TPS (ceiling)
 
-/// Calculate weight per gas unit.
-fn weight_per_gas(gas_limit: u64, ratio: Perbill, millis: u64) -> u64 {
-    let max_weight = ratio * Weight::from_parts(
-        frame_support::weights::constants::WEIGHT_REF_TIME_PER_MILLIS * millis,
-        0,
-    );
-    max_weight.ref_time() / gas_limit
-}
-
-/// Block weight must track the **live** adaptive gas limit (not MAX), or authors can
-/// pack more EVM gas into a block than `BlockGasLimit` / Ethereum header `gasLimit`.
+/// `WeightPerGas` must use the same normal-class ref-time the block builder
+/// spends. Dividing a 700ms figure into a ~7s `BlockWeights` budget let authors
+/// pack about 10× the Ethereum header `gasLimit` (r6: 95.9M used vs 50.1M).
+/// [`pallet_adaptive_gas::SLOT_GAS_CAP`] also stops the builder before the
+/// header limit so a 1s slot cannot import a multi-second block.
 pub struct AdaptiveWeightPerGas;
 
 impl frame_support::traits::Get<Weight> for AdaptiveWeightPerGas {
     fn get() -> Weight {
         let gas_limit = pallet_adaptive_gas::Pallet::<Runtime>::current_gas_limit()
             .max(MIN_GAS_LIMIT);
+        let normal = BlockWeights::get()
+            .get(frame_support::dispatch::DispatchClass::Normal)
+            .max_total
+            .unwrap_or_else(|| BlockWeights::get().max_block);
         Weight::from_parts(
-            weight_per_gas(
+            pallet_adaptive_gas::weight_ref_time_per_gas(
+                normal.ref_time(),
                 gas_limit,
-                NORMAL_DISPATCH_RATIO,
-                WEIGHT_MILLISECS_PER_BLOCK,
+                pallet_adaptive_gas::SLOT_GAS_CAP,
             ),
             0,
         )

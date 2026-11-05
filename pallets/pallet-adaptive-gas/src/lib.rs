@@ -53,6 +53,39 @@ impl<T: pallet::Config> frame_support::traits::Get<sp_core::U256> for AdaptiveGa
     }
 }
 
+/// Gas the author may execute in one 1-second slot.
+///
+/// r4 stayed near 1 s around 1,600 simple transfers (~34M gas). r6 packed
+/// ~4,500 because weight-per-gas was computed from ~700 ms while the normal
+/// class budget was ~7 s (~10×), so `gasUsed` exceeded the header `gasLimit`.
+/// 35M gas is ~1,666 transfers of 21,000 gas: under the 50M header floor.
+pub const SLOT_GAS_CAP: u64 = 35_000_000;
+
+/// Never above the header limit, never above [`SLOT_GAS_CAP`].
+pub fn executable_gas(header_gas_limit: u64, slot_gas_cap: u64) -> u64 {
+    header_gas_limit.max(1).min(slot_gas_cap.max(1))
+}
+
+/// Ref-time per gas so the normal-class budget is exhausted at `executable_gas`.
+/// Base extrinsic weight then stops the builder slightly earlier, so
+/// `gasUsed <= gasLimit`.
+pub fn weight_ref_time_per_gas(
+    normal_max_ref_time: u64,
+    header_gas_limit: u64,
+    slot_gas_cap: u64,
+) -> u64 {
+    let executable = executable_gas(header_gas_limit, slot_gas_cap);
+    (normal_max_ref_time / executable).max(1)
+}
+
+/// Largest gas total that fits in `normal_max_ref_time` at `weight_per_gas`.
+pub fn max_gas_within_weight(normal_max_ref_time: u64, weight_per_gas: u64) -> u64 {
+    if weight_per_gas == 0 {
+        return 0;
+    }
+    normal_max_ref_time / weight_per_gas
+}
+
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
@@ -328,4 +361,42 @@ pub struct AdaptiveStats {
     pub estimated_tps: u64,
     pub consecutive_full_blocks: u32,
     pub consecutive_empty_blocks: u32,
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::{executable_gas, max_gas_within_weight, weight_ref_time_per_gas, SLOT_GAS_CAP};
+
+    /// Fill a block with 21,000-gas transfers until the weight budget is gone.
+    #[test]
+    fn filled_block_never_exceeds_header_gas_limit() {
+        // 75% of a 7s ref-time block — same shape as runtime `BlockWeights`.
+        let normal_max = (7_000_000_000_000u64 / 4) * 3;
+        let header_limits = [50_000_000u64, 56_250_000, 35_000_000, 4_000_000_000];
+        for header in header_limits {
+            let wpg = weight_ref_time_per_gas(normal_max, header, SLOT_GAS_CAP);
+            let mut used = 0u64;
+            let mut weight = 0u64;
+            let tx_weight = 21_000u64.saturating_mul(wpg);
+            while weight.saturating_add(tx_weight) <= normal_max {
+                used = used.saturating_add(21_000);
+                weight = weight.saturating_add(tx_weight);
+            }
+            let cap = max_gas_within_weight(normal_max, wpg);
+            assert!(used <= header, "header {header}: filled {used} > gasLimit");
+            assert!(used <= SLOT_GAS_CAP, "header {header}: filled {used} > slot cap");
+            assert!(cap <= header.min(SLOT_GAS_CAP));
+            assert!(executable_gas(header, SLOT_GAS_CAP) <= header);
+        }
+    }
+
+    #[test]
+    fn mismatched_700ms_weight_would_overshoot() {
+        // Old bug: weight-per-gas used ~525ms of ref time while the normal
+        // class allowed ~5.25s, so about 10× the gas limit fit.
+        let wrongly_small = (525_000_000_000u64 / 50_000_000).max(1);
+        let real_budget = (7_000_000_000_000u64 / 4) * 3;
+        let fits = max_gas_within_weight(real_budget, wrongly_small);
+        assert!(fits > 50_000_000, "fixture should show the old overshoot");
+    }
 }
