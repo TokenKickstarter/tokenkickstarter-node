@@ -244,6 +244,15 @@ pub fn run() -> sc_cli::Result<()> {
                     &pool_params,
                     pool_future_divisor,
                 );
+                // r6 dropped from 2 peers to 0 while importing oversized blocks.
+                // Keep enough slots that the two validators are not the first
+                // connections evicted if a slot runs long.
+                if config.network.default_peers_set.out_peers < 25 {
+                    config.network.default_peers_set.out_peers = 25;
+                }
+                if config.network.default_peers_set.in_peers < 25 {
+                    config.network.default_peers_set.in_peers = 25;
+                }
                 service::new_full(config, cipher).map_err(sc_cli::Error::Service)
             })
         }

@@ -48,4 +48,8 @@ exec "$BINARY" \
   --rpc-cors all \
   --name "$NODE_NAME" \
   --validator \
+  --pool-limit 24576 \
+  --pool-kbytes 20480 \
+  --out-peers 25 \
+  --in-peers 25 \
   --log info

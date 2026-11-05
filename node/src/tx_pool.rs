@@ -14,8 +14,12 @@ pub fn apply_burst_pool_scaling(
     if future_divisor <= 1 {
         return;
     }
-    let base_limit = params.pool_limit;
-    let base_kbytes = params.pool_kbytes;
+    // A 10-sender × 2,000-nonce burst keeps all but one nonce per account in
+    // the future queue. Substrate sets future = ready/10. Floor the nominal
+    // limit so future holds at least 24,576 txs. r6 left 503 txs outside the
+    // pool for 42s.
+    let base_limit = params.pool_limit.max(24_576);
+    let base_kbytes = params.pool_kbytes.max(20_480);
     let scaled_limit = base_limit.saturating_mul(future_divisor);
     let scaled_kbytes = base_kbytes.saturating_mul(future_divisor);
 

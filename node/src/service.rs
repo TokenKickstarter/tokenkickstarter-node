@@ -492,8 +492,10 @@ pub fn new_full(
                 keystore: keystore_container.keystore(),
                 sync_oracle: sync_service.clone(),
                 justification_sync_link: sync_service.clone(),
+                // Stop pulling transactions at 2/3 of the 1s slot, and do not
+                // publish a proposal that ran past the slot (r6: 20–40s blocks).
                 block_proposal_slot_portion: SlotProportion::new(2f32 / 3f32),
-                max_block_proposal_slot_portion: None,
+                max_block_proposal_slot_portion: Some(SlotProportion::new(1f32)),
                 telemetry: telemetry.as_ref().map(|x| x.handle()),
                 compatibility_mode: Default::default(),
             },
