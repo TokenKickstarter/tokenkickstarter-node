@@ -10,6 +10,8 @@ pub enum ProductionCmd {
     MultisigAccount(MultisigAccountCmd),
     /// Smoke test: 2-of-3 multisig dispatches `sudo(force_rotate)`.
     MultisigSudoForceRotate(crate::multisig_sudo_cmd::MultisigSudoForceRotateCmd),
+    /// Production: 2-of-3 multisig dispatches `sudo(system.set_code(wasm))`.
+    MultisigSudoSetCode(crate::multisig_sudo_set_code_cmd::MultisigSudoSetCodeCmd),
     /// List pending `Multisig` storage entries for an account (read-only RPC).
     MultisigListPending(crate::multisig_pending_cmd::MultisigListPendingCmd),
     /// Cancel stuck pending multisig calls (any one signer).

@@ -132,6 +132,7 @@ pub fn run() -> sc_cli::Result<()> {
             crate::genesis_util::ProductionCmd::AccountId20(c) => c.run(),
             crate::genesis_util::ProductionCmd::MultisigAccount(c) => c.run(),
             crate::genesis_util::ProductionCmd::MultisigSudoForceRotate(c) => c.run(),
+            crate::genesis_util::ProductionCmd::MultisigSudoSetCode(c) => c.run(),
             crate::genesis_util::ProductionCmd::MultisigListPending(c) => c.run(),
             crate::genesis_util::ProductionCmd::MultisigCancelPending(c) => c.run(),
             crate::genesis_util::ProductionCmd::FundH160(c) => c.run(),

@@ -25,9 +25,16 @@ echo ">> Build release binary (Docker builder image; ~30–60 min first time)"
 cd "$SRC"
 docker build -t tks-node-build:"$TAG" -f Dockerfile .
 cp -a "$DIR/config/tks-chain-node" "$DIR/config/tks-chain-node.bak.$(date +%Y%m%d%H%M)" 2>/dev/null || true
-docker create --name tks-bin-extract-"$$" tks-node-build:"$TAG" >/dev/null
-docker cp "tks-bin-extract-$$:/app/tks-chain-node" "$DIR/config/tks-chain-node"
-docker rm "tks-bin-extract-$$" >/dev/null
+EXTRACT="tks-bin-extract-$$"
+docker create --name "$EXTRACT" tks-node-build:"$TAG" >/dev/null
+docker cp "$EXTRACT:/app/tks-chain-node" "$DIR/config/tks-chain-node"
+WASM_IN_IMAGE="/app/tks_runtime.compact.compressed.wasm"
+if docker cp "$EXTRACT:$WASM_IN_IMAGE" "$DIR/config/tks_runtime.compact.compressed.wasm" 2>/dev/null; then
+  echo ">> Extracted runtime WASM to $DIR/config/tks_runtime.compact.compressed.wasm"
+else
+  echo ">> WARN: could not extract $WASM_IN_IMAGE (run set_code from a host with WASM after build)"
+fi
+docker rm "$EXTRACT" >/dev/null
 
 cd "$DIR"
 docker compose up -d --force-recreate
@@ -43,4 +50,7 @@ r=json.load(sys.stdin).get('result') or {}
 print('spec_version', r.get('specVersion'), 'impl', r.get('implVersion'))
 "
 
+if [[ -f "$DIR/config/tks_runtime.compact.compressed.wasm" ]]; then
+  echo ">> To activate spec 413: TKS_WASM=$DIR/config/tks_runtime.compact.compressed.wasm bash $SRC/network/scripts/live-multisig-sudo-set-code.sh"
+fi
 echo "If spec_version is still 412, run runtime WASM upgrade (multisig → sudo.set_code)."

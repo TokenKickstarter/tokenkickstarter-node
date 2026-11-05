@@ -47,6 +47,15 @@ tks-chain-node production multisig-list-pending \
 
 `multisig.asMulti` → wrapped `sudo.sudo(call)`. No single signer can dispatch sudo alone.
 
+**Runtime upgrade (spec 413+):** after VPS binary deploy, submit compressed WASM:
+
+```bash
+TKS_WASM=/opt/tks-docker/config/tks_runtime.compact.compressed.wasm \
+  bash network/scripts/live-multisig-sudo-set-code.sh
+```
+
+Or: `tks-chain-node production multisig-sudo-set-code --wasm-file …` (same 2-of-3 seeds as force-rotate).
+
 **v0.1.19+** smoke tooling waits for the on-chain **timepoint** before `approve_as_multi` (fixes stuck pending from `maybe_timepoint: None`).
 
 Cancel a stuck pending call (any one member):

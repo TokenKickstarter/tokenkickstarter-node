@@ -13,6 +13,7 @@ mod genesis_util;
 mod multisig_pending_cmd;
 mod multisig_storage;
 mod multisig_sudo_cmd;
+mod multisig_sudo_set_code_cmd;
 mod production_fund_cmd;
 mod shard_setup_cmd;
 mod hyperswarm_rpc;
