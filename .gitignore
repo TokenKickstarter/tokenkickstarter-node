@@ -35,6 +35,7 @@ network/tks-network-spec-raw.json
 # ── Compiled Node Binaries ──────────────────────────────────────────
 # Binary releases belong in GitHub Releases, not the repo.
 # Use GitHub Actions (.github/workflows/release.yml) to publish.
+releases/
 releases/**/*-macos-arm64
 releases/**/*-linux-x86_64
 releases/**/*-linux-arm64
