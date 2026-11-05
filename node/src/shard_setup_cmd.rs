@@ -6,7 +6,7 @@ use fp_account::AccountId20;
 use crate::account_id20::from_secret_uri;
 use frame_support::BoundedVec;
 use pallet_shard_registry::{Call as ShardRegistryCall, GeoRegion};
-use sp_core::{ecdsa, H256, Pair};
+use sp_core::{ecdsa, Pair, H256};
 use tks_runtime::{Hash, RuntimeCall};
 
 use crate::extrinsic_sign::encode_signed_extrinsic;
@@ -74,9 +74,8 @@ impl CipherRegisterShardCmd {
 
         if !self.skip_register {
             let endpoint_bytes = self.endpoint.as_bytes().to_vec();
-            let endpoint: BoundedVec<u8, tks_runtime::MaxEndpointLength> = endpoint_bytes
-                .try_into()
-                .map_err(|_| "endpoint too long")?;
+            let endpoint: BoundedVec<u8, tks_runtime::MaxEndpointLength> =
+                endpoint_bytes.try_into().map_err(|_| "endpoint too long")?;
             let call = RuntimeCall::ShardRegistry(ShardRegistryCall::register_validator {
                 region: GeoRegion::NorthAmerica,
                 endpoint,
@@ -96,22 +95,13 @@ impl CipherRegisterShardCmd {
     }
 }
 
-fn submit_or_print(
-    url: &str,
-    ext: &[u8],
-    dry_run: bool,
-    label: &str,
-) -> sc_cli::Result<()> {
+fn submit_or_print(url: &str, ext: &[u8], dry_run: bool, label: &str) -> sc_cli::Result<()> {
     let hex_ext = format!("0x{}", hex::encode(ext));
     if dry_run {
         println!("{label} extrinsic ({ } bytes): {hex_ext}", ext.len());
         return Ok(());
     }
-    let hash = rpc_call(
-        url,
-        "author_submitExtrinsic",
-        serde_json::json!([hex_ext]),
-    )?;
+    let hash = rpc_call(url, "author_submitExtrinsic", serde_json::json!([hex_ext]))?;
     println!("{label} submitted: {hash}");
     Ok(())
 }
@@ -138,7 +128,9 @@ fn resolve_seed(
 
 pub(crate) fn fetch_genesis_hash(url: &str) -> Result<Hash, sc_cli::Error> {
     let hex = rpc_call(url, "chain_getBlockHash", serde_json::json!([0]))?;
-    let hex = hex.as_str().ok_or_else(|| sc_cli::Error::Input("bad genesis hash".into()))?;
+    let hex = hex
+        .as_str()
+        .ok_or_else(|| sc_cli::Error::Input("bad genesis hash".into()))?;
     parse_hash(hex).map_err(|e| sc_cli::Error::Input(e.into()))
 }
 
@@ -155,8 +147,7 @@ pub(crate) fn fetch_account_nonce(url: &str, account: AccountId20) -> Result<u32
         .ok_or_else(|| sc_cli::Error::Input("bad nonce response".into()))?;
     let bytes = hex::decode(hex.trim_start_matches("0x"))
         .map_err(|e| sc_cli::Error::Input(e.to_string()))?;
-    u32::decode(&mut &bytes[..])
-        .map_err(|e| sc_cli::Error::Input(format!("decode nonce: {e}")))
+    u32::decode(&mut &bytes[..]).map_err(|e| sc_cli::Error::Input(format!("decode nonce: {e}")))
 }
 
 fn parse_hash(hex: &str) -> Result<Hash, String> {
@@ -186,7 +177,9 @@ pub(crate) fn rpc_call(
         .into_json()
         .map_err(|e| sc_cli::Error::Application(format!("JSON {method}: {e}").into()))?;
     if let Some(err) = resp.get("error") {
-        return Err(sc_cli::Error::Application(format!("RPC {method}: {err}").into()));
+        return Err(sc_cli::Error::Application(
+            format!("RPC {method}: {err}").into(),
+        ));
     }
     resp.get("result")
         .cloned()

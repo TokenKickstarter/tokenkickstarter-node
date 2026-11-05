@@ -1,10 +1,10 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
+use std::sync::Arc;
 
-use clap::Parser;
 use cipher_hybrid::{HybridConfig, HybridController};
 use cipher_shard_executor::{run_embedded, EmbeddedExecutorConfig};
+use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(name = "cipher-shard-executor")]

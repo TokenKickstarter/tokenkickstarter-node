@@ -1,8 +1,8 @@
 //! Run shard executor inside `tks-chain-node` (ingest HTTP + periodic seal).
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use cipher_hybrid::HybridController;
@@ -49,13 +49,9 @@ pub async fn run_embedded(cfg: EmbeddedExecutorConfig) -> Result<(), String> {
                 interval.tick().await;
                 let epoch_val = epoch.load(Ordering::Relaxed);
                 let mut guard = multi_tick.lock().await;
-                if let Err(e) = guard.seal_ready(
-                    shard_id,
-                    epoch_val,
-                    &da_dir,
-                    &anchors_dir,
-                    &hybrid_tick,
-                ) {
+                if let Err(e) =
+                    guard.seal_ready(shard_id, epoch_val, &da_dir, &anchors_dir, &hybrid_tick)
+                {
                     log::error!("Cipher hybrid seal failed: {e}");
                 }
             }
@@ -68,7 +64,8 @@ pub async fn run_embedded(cfg: EmbeddedExecutorConfig) -> Result<(), String> {
             cfg.port,
         );
 
-        return server::run_http_ingest_hybrid(cfg.port, multi, hybrid, cfg.build_info.clone()).await;
+        return server::run_http_ingest_hybrid(cfg.port, multi, hybrid, cfg.build_info.clone())
+            .await;
     }
 
     let engine = new_shared_engine();

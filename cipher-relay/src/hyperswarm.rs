@@ -213,10 +213,8 @@ pub async fn run_hyperswarm(
     let chunk_topic = IdentTopic::new(GOSSIP_CHUNK_TOPIC);
 
     let mut avail = AvailIndex::default();
-    let mut pull_targets: HashMap<
-        libp2p::request_response::OutboundRequestId,
-        ChunkRequest,
-    > = HashMap::new();
+    let mut pull_targets: HashMap<libp2p::request_response::OutboundRequestId, ChunkRequest> =
+        HashMap::new();
     let mut pull_replies: HashMap<String, oneshot::Sender<u32>> = HashMap::new();
     let mut pull_counts: HashMap<String, u32> = HashMap::new();
     let mut pull_pending: HashMap<String, HashSet<AvailKey>> = HashMap::new();
@@ -364,10 +362,7 @@ pub async fn run_hyperswarm(
         }
     });
 
-    Ok(HyperSwarmHandle {
-        directory,
-        cmd_tx,
-    })
+    Ok(HyperSwarmHandle { directory, cmd_tx })
 }
 
 fn extract_peer_id(addr: &Multiaddr) -> Option<PeerId> {
@@ -381,10 +376,7 @@ fn extract_peer_id(addr: &Multiaddr) -> Option<PeerId> {
     })
 }
 
-pub fn chunk_avail_from(
-    chunk: &EncryptedChunk,
-    holder_peer_id: &str,
-) -> ChunkAvailAnnouncement {
+pub fn chunk_avail_from(chunk: &EncryptedChunk, holder_peer_id: &str) -> ChunkAvailAnnouncement {
     use sha2::{Digest, Sha256};
     let hash = Sha256::digest(&chunk.ciphertext);
     ChunkAvailAnnouncement {

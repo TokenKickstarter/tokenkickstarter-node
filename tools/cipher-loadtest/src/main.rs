@@ -88,7 +88,10 @@ async fn main() -> Result<(), String> {
         "msg_per_sec": ok as f64 / elapsed,
     });
     println!("{}", serde_json::to_string_pretty(&result).unwrap());
-    std::fs::write("cipher_load_results.json", serde_json::to_string_pretty(&result).unwrap())
-        .map_err(|e| e.to_string())?;
+    std::fs::write(
+        "cipher_load_results.json",
+        serde_json::to_string_pretty(&result).unwrap(),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }

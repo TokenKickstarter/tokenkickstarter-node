@@ -75,11 +75,7 @@ impl MultisigSudoForceRotateCmd {
         let max_weight = frame_support::weights::Weight::from_parts(5_000_000_000, 0);
 
         let other_for = |who: AccountId20| -> Vec<AccountId20> {
-            signers
-                .iter()
-                .copied()
-                .filter(|a| *a != who)
-                .collect()
+            signers.iter().copied().filter(|a| *a != who).collect()
         };
 
         // Member 1: initial as_multi (stores pending approval).
@@ -102,12 +98,7 @@ impl MultisigSudoForceRotateCmd {
         )?;
 
         // Member 2: approve pending multisig (executes when threshold met).
-        let timepoint = wait_for_multisig_timepoint(
-            &self.rpc_url,
-            multisig_addr,
-            &call_hash,
-            45,
-        )?;
+        let timepoint = wait_for_multisig_timepoint(&self.rpc_url, multisig_addr, &call_hash, 45)?;
         let nonce2 = fetch_account_nonce(&self.rpc_url, acc2)?;
         let call2 = RuntimeCall::Multisig(MultisigCall::approve_as_multi {
             threshold: self.threshold,
@@ -163,11 +154,7 @@ fn submit(
     let ext = encode_signed_extrinsic(call, pair, account, nonce, genesis_hash)
         .map_err(|e| sc_cli::Error::Application(e.into()))?;
     let hex_ext = format!("0x{}", hex::encode(ext));
-    let hash = rpc_call(
-        url,
-        "author_submitExtrinsic",
-        serde_json::json!([hex_ext]),
-    )?;
+    let hash = rpc_call(url, "author_submitExtrinsic", serde_json::json!([hex_ext]))?;
     println!("{label}: {hash}");
     Ok(())
 }

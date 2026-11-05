@@ -93,11 +93,7 @@ impl MultisigSudoSetCodeCmd {
         let max_weight = frame_support::weights::Weight::from_parts(2_000_000_000_000, 0);
 
         let other_for = |who: AccountId20| -> Vec<AccountId20> {
-            signers
-                .iter()
-                .copied()
-                .filter(|a| *a != who)
-                .collect()
+            signers.iter().copied().filter(|a| *a != who).collect()
         };
 
         let nonce1 = fetch_account_nonce(&self.rpc_url, acc1)?;
@@ -118,12 +114,7 @@ impl MultisigSudoSetCodeCmd {
             "member1 as_multi set_code",
         )?;
 
-        let timepoint = wait_for_multisig_timepoint(
-            &self.rpc_url,
-            multisig_addr,
-            &call_hash,
-            90,
-        )?;
+        let timepoint = wait_for_multisig_timepoint(&self.rpc_url, multisig_addr, &call_hash, 90)?;
         let nonce2 = fetch_account_nonce(&self.rpc_url, acc2)?;
         let call2 = RuntimeCall::Multisig(MultisigCall::approve_as_multi {
             threshold: self.threshold,
@@ -176,11 +167,7 @@ fn submit(
     let ext = encode_signed_extrinsic(call, pair, account, nonce, genesis_hash)
         .map_err(|e| sc_cli::Error::Application(e.into()))?;
     let hex_ext = format!("0x{}", hex::encode(ext));
-    let hash = rpc_call(
-        url,
-        "author_submitExtrinsic",
-        serde_json::json!([hex_ext]),
-    )?;
+    let hash = rpc_call(url, "author_submitExtrinsic", serde_json::json!([hex_ext]))?;
     println!("{label}: {hash}");
     Ok(())
 }

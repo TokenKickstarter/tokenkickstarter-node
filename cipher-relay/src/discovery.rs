@@ -82,7 +82,9 @@ pub async fn build_discovery(
         self_http: public_http,
         self_peer_id,
         relays,
-        hybrid: hybrid.as_ref().map(|h| serde_json::to_value(h.snapshot()).unwrap_or_default()),
+        hybrid: hybrid
+            .as_ref()
+            .map(|h| serde_json::to_value(h.snapshot()).unwrap_or_default()),
         chain_rpc: chain_rpc_url,
     }
 }

@@ -38,11 +38,16 @@ impl ProductionFundH160Cmd {
 
         let genesis_hash = fetch_genesis_hash(&self.rpc_url)?;
         let nonce = fetch_account_nonce(&self.rpc_url, from)?;
-        let call = RuntimeCall::Balances(BalancesCall::transfer_allow_death {
-            dest: to,
-            value,
-        });
-        submit(&self.rpc_url, &pair, from, call, nonce, genesis_hash, &self.to)
+        let call = RuntimeCall::Balances(BalancesCall::transfer_allow_death { dest: to, value });
+        submit(
+            &self.rpc_url,
+            &pair,
+            from,
+            call,
+            nonce,
+            genesis_hash,
+            &self.to,
+        )
     }
 }
 

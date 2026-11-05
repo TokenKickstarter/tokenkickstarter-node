@@ -23,44 +23,37 @@ mod precompiles;
 use adaptive_gas_on_charge::AdaptiveGasOnCharge;
 use precompiles::FrontierPrecompiles;
 
+use alloc::borrow::Cow;
 use alloc::vec;
 use alloc::vec::Vec;
-use alloc::borrow::Cow;
 use core::marker::PhantomData;
 
+use fp_account::{AccountId20, EthereumSignature};
+use frame_election_provider_support::{onchain, SequentialPhragmen};
 use frame_support::{
-    construct_runtime,
-    derive_impl,
-    parameter_types,
-    traits::{
-        ConstBool, ConstU32, ConstU64, ConstU8, FindAuthor,
-        fungible, Nothing, OnUnbalanced,
-    },
-    weights::{
-        constants::RocksDbWeight,
-        IdentityFee, Weight,
-    },
+    construct_runtime, derive_impl, parameter_types,
+    traits::{fungible, ConstBool, ConstU32, ConstU64, ConstU8, FindAuthor, Nothing, OnUnbalanced},
+    weights::{constants::RocksDbWeight, IdentityFee, Weight},
     PalletId,
 };
-use frame_election_provider_support::{
-    onchain, SequentialPhragmen,
-};
-use pallet_grandpa::AuthorityId as GrandpaId;
 use pallet_ethereum::PostLogContent;
 use pallet_evm::IdentityAddressMapping;
+use pallet_grandpa::AuthorityId as GrandpaId;
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_core::{crypto::{ByteArray, KeyTypeId}, OpaqueMetadata, H160, U256};
+use sp_core::{
+    crypto::{ByteArray, KeyTypeId},
+    OpaqueMetadata, H160, U256,
+};
 use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
-        AccountIdLookup, BlakeTwo256, Block as BlockT, Dispatchable, DispatchInfoOf,
+        AccountIdLookup, BlakeTwo256, Block as BlockT, DispatchInfoOf, Dispatchable,
         IdentifyAccount, PostDispatchInfoOf, UniqueSaturatedInto, Verify,
     },
     transaction_validity::{TransactionSource, TransactionValidity, TransactionValidityError},
     ApplyExtrinsicResult, ConsensusEngineId, Perbill, Permill,
 };
-use fp_account::{AccountId20, EthereumSignature};
 use sp_staking::SessionIndex;
 use sp_version::RuntimeVersion;
 
@@ -180,8 +173,8 @@ pub const MICRO_TKS: Balance = TKS / 1_000_000;
 pub const MILLISECS_PER_BLOCK: u64 = 1000;
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
 pub const MINUTES: BlockNumber = 60_000 / (MILLISECS_PER_BLOCK as BlockNumber); // 60 blocks
-pub const HOURS: BlockNumber = MINUTES * 60;                                     // 3,600 blocks
-pub const DAYS: BlockNumber = HOURS * 24;                                        // 86,400 blocks
+pub const HOURS: BlockNumber = MINUTES * 60; // 3,600 blocks
+pub const DAYS: BlockNumber = HOURS * 24; // 86,400 blocks
 
 /// Staking era: 6 hours = 21,600 blocks (was 360 at 6s blocks).
 pub const EPOCH_DURATION_IN_BLOCKS: BlockNumber = HOURS * 6;
@@ -374,8 +367,7 @@ impl pallet_balances::Config for Runtime {
 
 impl pallet_transaction_payment::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type OnChargeTransaction =
-        pallet_transaction_payment::FungibleAdapter<Balances, DealWithFees>;
+    type OnChargeTransaction = pallet_transaction_payment::FungibleAdapter<Balances, DealWithFees>;
     type OperationalFeeMultiplier = ConstU8<5>;
     type WeightToFee = IdentityFee<Balance>;
     type LengthToFee = IdentityFee<Balance>;
@@ -777,18 +769,18 @@ impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorTruncated<F> {
 // This constant is only used as the genesis/default value.
 const BLOCK_GAS_LIMIT: u64 = 50_000_000; // 50M — hybrid idle ~1k TPS; adaptive gas scales up under load
 const MAX_POV_SIZE: u64 = 10 * 1024 * 1024; // 10MB to match BlockLength
-// NOTE: GasLimitPovSizeRatio and GasLimitStorageGrowthRatio control how much gas
-// is charged for Merkle proof size and storage growth respectively. These are needed
-// for PARACHAINS (relay-chain limits proof-of-validity size). For STANDALONE chains
-// like TKS there is no PoV budget to protect, so we disable them by setting to 0.
-// With ratio=4 (non-zero), a 25KB state proof would cost 25000*4=100K gas — far
-// more than a 21K-gas transfer, causing OOG reverts on basic operations.
-const GAS_POV_RATIO: u64 = 0;         // 0 = disabled (standalone chain, no relay PoV budget)
-const GAS_STORAGE_RATIO: u64 = 0;     // 0 = disabled (storage growth uncapped per-tx)
+                                            // NOTE: GasLimitPovSizeRatio and GasLimitStorageGrowthRatio control how much gas
+                                            // is charged for Merkle proof size and storage growth respectively. These are needed
+                                            // for PARACHAINS (relay-chain limits proof-of-validity size). For STANDALONE chains
+                                            // like TKS there is no PoV budget to protect, so we disable them by setting to 0.
+                                            // With ratio=4 (non-zero), a 25KB state proof would cost 25000*4=100K gas — far
+                                            // more than a 21K-gas transfer, causing OOG reverts on basic operations.
+const GAS_POV_RATIO: u64 = 0; // 0 = disabled (standalone chain, no relay PoV budget)
+const GAS_STORAGE_RATIO: u64 = 0; // 0 = disabled (storage growth uncapped per-tx)
 
 // Adaptive gas pallet constants
-const MIN_GAS_LIMIT: u64  =    50_000_000; //  50M →  ~1,000 TPS (hybrid idle floor)
-const MAX_GAS_LIMIT: u64  = 4_000_000_000; //   4B → ~80,000 TPS (ceiling)
+const MIN_GAS_LIMIT: u64 = 50_000_000; //  50M →  ~1,000 TPS (hybrid idle floor)
+const MAX_GAS_LIMIT: u64 = 4_000_000_000; //   4B → ~80,000 TPS (ceiling)
 
 /// `WeightPerGas` must use the same normal-class ref-time the block builder
 /// spends. Dividing a 700ms figure into a ~7s `BlockWeights` budget let authors
@@ -799,8 +791,8 @@ pub struct AdaptiveWeightPerGas;
 
 impl frame_support::traits::Get<Weight> for AdaptiveWeightPerGas {
     fn get() -> Weight {
-        let gas_limit = pallet_adaptive_gas::Pallet::<Runtime>::current_gas_limit()
-            .max(MIN_GAS_LIMIT);
+        let gas_limit =
+            pallet_adaptive_gas::Pallet::<Runtime>::current_gas_limit().max(MIN_GAS_LIMIT);
         let normal = BlockWeights::get()
             .get(frame_support::dispatch::DispatchClass::Normal)
             .max_total
@@ -931,10 +923,10 @@ parameter_types! {
 pub struct BaseFeeThreshold;
 impl pallet_base_fee::BaseFeeThreshold for BaseFeeThreshold {
     fn lower() -> Permill {
-        Permill::from_parts(0)        // below 0% fullness → fee can drop to near 0
+        Permill::from_parts(0) // below 0% fullness → fee can drop to near 0
     }
     fn ideal() -> Permill {
-        Permill::from_parts(500_000)  // target: 50% block fullness → fee stays stable
+        Permill::from_parts(500_000) // target: 50% block fullness → fee stays stable
     }
     fn upper() -> Permill {
         Permill::from_parts(1_000_000) // above 100% → fee rises (but blocks expand first)
@@ -976,36 +968,35 @@ parameter_types! {
 }
 
 impl pallet_nfts::Config for Runtime {
-    type RuntimeEvent                   = RuntimeEvent;
-    type CollectionId                   = u32;
-    type ItemId                         = u32;
-    type Currency                       = Balances;
+    type RuntimeEvent = RuntimeEvent;
+    type CollectionId = u32;
+    type ItemId = u32;
+    type Currency = Balances;
     // Anyone can create a collection
-    type CreateOrigin = frame_support::traits::AsEnsureOriginWithArg<
-        frame_system::EnsureSigned<AccountId>,
-    >;
-    type ForceOrigin                    = frame_system::EnsureRoot<AccountId>;
-    type Locker                         = ();
-    type CollectionDeposit              = NftsCollectionDeposit;
-    type ItemDeposit                    = NftsItemDeposit;
-    type MetadataDepositBase            = NftsMetadataDepositBase;
-    type AttributeDepositBase           = NftsAttributeDepositBase;
-    type DepositPerByte                 = NftsDepositPerByte;
-    type StringLimit                    = ConstU32<256>;
-    type KeyLimit                       = ConstU32<64>;
-    type ValueLimit                     = ConstU32<256>;
-    type ApprovalsLimit                 = ConstU32<20>;
-    type ItemAttributesApprovalsLimit   = ConstU32<30>;
-    type MaxTips                        = ConstU32<10>;
-    type MaxDeadlineDuration            = NftsMaxDeadlineDuration;
-    type MaxAttributesPerCall           = ConstU32<10>;
-    type Features                       = NftsFeatures;
-    type OffchainSignature              = EthereumSignature;
-    type OffchainPublic                 = fp_account::EthereumSigner;
-    type BlockNumberProvider            = System;
-    type WeightInfo                     = pallet_nfts::weights::SubstrateWeight<Runtime>;
+    type CreateOrigin =
+        frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+    type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+    type Locker = ();
+    type CollectionDeposit = NftsCollectionDeposit;
+    type ItemDeposit = NftsItemDeposit;
+    type MetadataDepositBase = NftsMetadataDepositBase;
+    type AttributeDepositBase = NftsAttributeDepositBase;
+    type DepositPerByte = NftsDepositPerByte;
+    type StringLimit = ConstU32<256>;
+    type KeyLimit = ConstU32<64>;
+    type ValueLimit = ConstU32<256>;
+    type ApprovalsLimit = ConstU32<20>;
+    type ItemAttributesApprovalsLimit = ConstU32<30>;
+    type MaxTips = ConstU32<10>;
+    type MaxDeadlineDuration = NftsMaxDeadlineDuration;
+    type MaxAttributesPerCall = ConstU32<10>;
+    type Features = NftsFeatures;
+    type OffchainSignature = EthereumSignature;
+    type OffchainPublic = fp_account::EthereumSigner;
+    type BlockNumberProvider = System;
+    type WeightInfo = pallet_nfts::weights::SubstrateWeight<Runtime>;
     #[cfg(feature = "runtime-benchmarks")]
-    type Helper                         = ();
+    type Helper = ();
 }
 
 // ─── Construct Runtime ─────────────────────────────────────────────
@@ -1060,7 +1051,6 @@ construct_runtime!(
 
 // ─── Ethereum Transaction Converter ────────────────────────────────
 
-
 // ─── Ethereum Transaction Converter ────────────────────────────────
 
 /// Alias for Ethereum transaction type (TransactionV3 with EIP-7702).
@@ -1070,16 +1060,13 @@ pub type EthereumTransaction = pallet_ethereum::Transaction;
 pub struct TransactionConverter;
 
 impl fp_rpc::ConvertTransaction<UncheckedExtrinsic> for TransactionConverter {
-    fn convert_transaction(
-        &self,
-        transaction: EthereumTransaction,
-    ) -> UncheckedExtrinsic {
-        let extrinsic: UncheckedExtrinsic = fp_self_contained::UncheckedExtrinsic(generic::UncheckedExtrinsic::new_bare(
-            pallet_ethereum::Call::<Runtime>::transact { transaction }.into(),
-        ));
+    fn convert_transaction(&self, transaction: EthereumTransaction) -> UncheckedExtrinsic {
+        let extrinsic: UncheckedExtrinsic =
+            fp_self_contained::UncheckedExtrinsic(generic::UncheckedExtrinsic::new_bare(
+                pallet_ethereum::Call::<Runtime>::transact { transaction }.into(),
+            ));
         let encoded = codec::Encode::encode(&extrinsic);
-        codec::Decode::decode(&mut &encoded[..])
-            .expect("Encoded extrinsic is always valid")
+        codec::Decode::decode(&mut &encoded[..]).expect("Encoded extrinsic is always valid")
     }
 }
 
@@ -1145,7 +1132,7 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
 
 // ─── Offchain (bare extrinsic creation for election unsigned submissions) ──
 
-use frame_system::offchain::{CreateTransactionBase, CreateBare};
+use frame_system::offchain::{CreateBare, CreateTransactionBase};
 
 impl CreateTransactionBase<pallet_election_provider_multi_phase::Call<Runtime>> for Runtime {
     type Extrinsic = UncheckedExtrinsic;

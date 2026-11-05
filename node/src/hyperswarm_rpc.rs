@@ -8,8 +8,8 @@ use sc_client_api::backend::Backend;
 use sc_client_api::StorageProvider;
 use sp_blockchain::HeaderBackend;
 use sp_core::twox_128;
-use sp_storage::StorageKey;
 use sp_runtime::traits::{Block as BlockT, UniqueSaturatedInto};
+use sp_storage::StorageKey;
 
 use tks_runtime::{AccountId, Runtime};
 
@@ -97,10 +97,9 @@ where
 
         let mut out = Vec::new();
         for key in keys {
-            let Some(raw) = self
-                .client
-                .storage(at, &key)
-                .map_err(|e| jsonrpsee::types::ErrorObject::owned(-32000, e.to_string(), None::<()>))?
+            let Some(raw) = self.client.storage(at, &key).map_err(|e| {
+                jsonrpsee::types::ErrorObject::owned(-32000, e.to_string(), None::<()>)
+            })?
             else {
                 continue;
             };
@@ -167,18 +166,10 @@ where
 
     fn anchor_stats(&self) -> RpcResult<AnchorStats> {
         let at = self.client.info().best_hash;
-        let total_anchors = read_storage_u64(
-            &self.client,
-            at,
-            b"HyperSwarmAnchor",
-            b"TotalAnchors",
-        );
-        let total_messages = read_storage_u64(
-            &self.client,
-            at,
-            b"HyperSwarmAnchor",
-            b"TotalMessageCount",
-        );
+        let total_anchors =
+            read_storage_u64(&self.client, at, b"HyperSwarmAnchor", b"TotalAnchors");
+        let total_messages =
+            read_storage_u64(&self.client, at, b"HyperSwarmAnchor", b"TotalMessageCount");
         Ok(AnchorStats {
             total_anchors,
             total_messages,
@@ -186,12 +177,7 @@ where
     }
 }
 
-fn read_storage_u64<C, B, BE>(
-    client: &Arc<C>,
-    at: B::Hash,
-    pallet: &[u8],
-    item: &[u8],
-) -> u64
+fn read_storage_u64<C, B, BE>(client: &Arc<C>, at: B::Hash, pallet: &[u8], item: &[u8]) -> u64
 where
     B: BlockT,
     BE: Backend<B> + 'static,

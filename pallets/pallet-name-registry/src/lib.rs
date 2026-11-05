@@ -24,9 +24,9 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use alloc::vec::Vec;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
-    use alloc::vec::Vec;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -51,22 +51,14 @@ pub mod pallet {
     /// Maps username bytes → owner account.
     #[pallet::storage]
     #[pallet::getter(fn names)]
-    pub type Names<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        BoundedVec<u8, T::MaxNameLength>,
-        T::AccountId,
-    >;
+    pub type Names<T: Config> =
+        StorageMap<_, Blake2_128Concat, BoundedVec<u8, T::MaxNameLength>, T::AccountId>;
 
     /// Reverse lookup: account → username.
     #[pallet::storage]
     #[pallet::getter(fn reverse_lookup)]
-    pub type ReverseLookup<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        BoundedVec<u8, T::MaxNameLength>,
-    >;
+    pub type ReverseLookup<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, BoundedVec<u8, T::MaxNameLength>>;
 
     /// Total number of registered usernames.
     #[pallet::storage]
@@ -215,11 +207,7 @@ pub mod pallet {
         pub fn register_batch_unsigned(
             origin: OriginFor<T>,
             entries: BoundedVec<
-                (
-                    BoundedVec<u8, T::MaxNameLength>,
-                    T::AccountId,
-                    [u8; 65],
-                ),
+                (BoundedVec<u8, T::MaxNameLength>, T::AccountId, [u8; 65]),
                 T::MaxNameBatchSize,
             >,
         ) -> DispatchResultWithPostInfo {
@@ -312,10 +300,7 @@ pub mod pallet {
             ReverseLookup::<T>::remove(&who);
             TotalNames::<T>::mutate(|n| *n = n.saturating_sub(1));
 
-            Self::deposit_event(Event::NameReleased {
-                name,
-                owner: who,
-            });
+            Self::deposit_event(Event::NameReleased { name, owner: who });
 
             Ok(Pays::No.into())
         }
@@ -360,7 +345,11 @@ pub mod pallet {
 
         fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
             match call {
-                Call::register_unsigned { name, owner, signature } => {
+                Call::register_unsigned {
+                    name,
+                    owner,
+                    signature,
+                } => {
                     if Pallet::<T>::verify_register_signature(name, owner, signature).is_err() {
                         return InvalidTransaction::BadProof.into();
                     }
@@ -387,8 +376,7 @@ pub mod pallet {
                         .longevity(64)
                         .propagate(true);
                     for (name, owner, signature) in entries.iter() {
-                        if Pallet::<T>::verify_register_signature(name, owner, signature).is_err()
-                        {
+                        if Pallet::<T>::verify_register_signature(name, owner, signature).is_err() {
                             return InvalidTransaction::BadProof.into();
                         }
                         if Names::<T>::contains_key(name) {
@@ -397,8 +385,7 @@ pub mod pallet {
                         if ReverseLookup::<T>::contains_key(owner) {
                             return InvalidTransaction::Stale.into();
                         }
-                        validity =
-                            validity.and_provides((owner.encode(), name.to_vec()));
+                        validity = validity.and_provides((owner.encode(), name.to_vec()));
                     }
                     validity.build()
                 }

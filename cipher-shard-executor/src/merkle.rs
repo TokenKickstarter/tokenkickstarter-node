@@ -41,6 +41,9 @@ mod tests {
             ciphertext_hash: [2u8; 32],
             stored_at: 2,
         };
-        assert_eq!(compute_dag_root(&[a.clone(), b.clone()]), compute_dag_root(&[b, a]));
+        assert_eq!(
+            compute_dag_root(&[a.clone(), b.clone()]),
+            compute_dag_root(&[b, a])
+        );
     }
 }

@@ -87,7 +87,8 @@ impl BatchEngine {
         let da_path = write_blob(da_dir, &root, &blob)?;
 
         std::fs::create_dir_all(anchors_dir).map_err(|e| e.to_string())?;
-        let payload = AnchorSubmitPayload::new(shard_id, root, count, epoch, da_path.display().to_string());
+        let payload =
+            AnchorSubmitPayload::new(shard_id, root, count, epoch, da_path.display().to_string());
         let anchor_file = anchors_dir.join(format!(
             "anchor_{}_{}.json",
             shard_id,

@@ -24,10 +24,10 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use frame_support::pallet_prelude::*;
-    use frame_system::pallet_prelude::*;
     use alloc::vec::Vec;
     use codec::DecodeWithMemTracking;
+    use frame_support::pallet_prelude::*;
+    use frame_system::pallet_prelude::*;
 
     /// Maximum number of shards the network can support
     pub const MAX_SHARDS: u16 = 1024;
@@ -39,7 +39,9 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> + pallet_staking::Config {
+    pub trait Config:
+        frame_system::Config<RuntimeEvent: From<Event<Self>>> + pallet_staking::Config
+    {
         /// How many blocks per shard rotation epoch.
         /// Default: 6 hours = 3600 blocks at 6s/block.
         #[pallet::constant]
@@ -58,7 +60,19 @@ pub mod pallet {
 
     /// Geographic region for validator placement.
     /// Validators in the same region form shards with sub-100ms consensus.
-    #[derive(Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    #[derive(
+        Clone,
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        TypeInfo,
+        MaxEncodedLen,
+        Debug,
+        PartialEq,
+        Eq,
+        serde::Serialize,
+        serde::Deserialize,
+    )]
     pub enum GeoRegion {
         /// North America (US, Canada, Mexico)
         NorthAmerica,
@@ -115,24 +129,20 @@ pub mod pallet {
     /// All registered HyperSwarm validators: AccountId → registration details.
     #[pallet::storage]
     #[pallet::getter(fn validators)]
-    pub type Validators<T: Config> = StorageMap<
-        _, Blake2_128Concat, T::AccountId, SwarmValidator<T>,
-    >;
+    pub type Validators<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, SwarmValidator<T>>;
 
     /// Shard → assignment metadata.
     #[pallet::storage]
     #[pallet::getter(fn shard_map)]
-    pub type ShardMap<T: Config> = StorageMap<
-        _, Blake2_128Concat, u16, ShardAssignment<T>,
-    >;
+    pub type ShardMap<T: Config> = StorageMap<_, Blake2_128Concat, u16, ShardAssignment<T>>;
 
     /// Shard → list of assigned validator AccountIds.
     /// Stored separately from ShardAssignment for gas-efficient querying.
     #[pallet::storage]
     #[pallet::getter(fn shard_validators)]
-    pub type ShardValidators<T: Config> = StorageMap<
-        _, Blake2_128Concat, u16, BoundedVec<T::AccountId, ConstU32<21>>, ValueQuery,
-    >;
+    pub type ShardValidators<T: Config> =
+        StorageMap<_, Blake2_128Concat, u16, BoundedVec<T::AccountId, ConstU32<21>>, ValueQuery>;
 
     /// Current epoch number (incremented every EpochLength blocks).
     #[pallet::storage]
@@ -174,9 +184,7 @@ pub mod pallet {
             region: GeoRegion,
         },
         /// Validator deregistered from HyperSwarm duty.
-        ValidatorDeregistered {
-            who: T::AccountId,
-        },
+        ValidatorDeregistered { who: T::AccountId },
         /// Shard assignments rotated for a new epoch.
         EpochRotated {
             epoch: u32,
@@ -184,19 +192,11 @@ pub mod pallet {
             validator_count: u32,
         },
         /// Active shard count changed (scaling event).
-        ShardCountChanged {
-            old_count: u16,
-            new_count: u16,
-        },
+        ShardCountChanged { old_count: u16, new_count: u16 },
         /// Validators per shard configuration changed.
-        ValidatorsPerShardChanged {
-            old_value: u32,
-            new_value: u32,
-        },
+        ValidatorsPerShardChanged { old_value: u32, new_value: u32 },
         /// Validator endpoint updated.
-        ValidatorEndpointUpdated {
-            who: T::AccountId,
-        },
+        ValidatorEndpointUpdated { who: T::AccountId },
     }
 
     // ─── Errors ────────────────────────────────────────────────────────
@@ -246,7 +246,10 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            ensure!(!Validators::<T>::contains_key(&who), Error::<T>::AlreadyRegistered);
+            ensure!(
+                !Validators::<T>::contains_key(&who),
+                Error::<T>::AlreadyRegistered
+            );
             ensure!(!endpoint.is_empty(), Error::<T>::EmptyEndpoint);
             if RequireStakedValidators::<T>::get() {
                 ensure!(
@@ -257,12 +260,15 @@ pub mod pallet {
 
             let now = frame_system::Pallet::<T>::block_number();
 
-            Validators::<T>::insert(&who, SwarmValidator {
-                region: region.clone(),
-                endpoint,
-                registered_at: now,
-                active: true,
-            });
+            Validators::<T>::insert(
+                &who,
+                SwarmValidator {
+                    region: region.clone(),
+                    endpoint,
+                    registered_at: now,
+                    active: true,
+                },
+            );
 
             TotalValidators::<T>::mutate(|n| *n = n.saturating_add(1));
 
@@ -278,7 +284,10 @@ pub mod pallet {
             .saturating_add(T::DbWeight::get().reads_writes(1, 2)))]
         pub fn deregister_validator(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(Validators::<T>::contains_key(&who), Error::<T>::NotRegistered);
+            ensure!(
+                Validators::<T>::contains_key(&who),
+                Error::<T>::NotRegistered
+            );
 
             Validators::<T>::remove(&who);
             TotalValidators::<T>::mutate(|n| *n = n.saturating_sub(1));
@@ -399,9 +408,7 @@ pub mod pallet {
 
         /// Returns true if the account is an active HyperSwarm validator registration.
         pub fn is_registered_validator(who: &T::AccountId) -> bool {
-            Validators::<T>::get(who)
-                .map(|v| v.active)
-                .unwrap_or(false)
+            Validators::<T>::get(who).map(|v| v.active).unwrap_or(false)
         }
 
         /// Execute shard rotation for a new epoch.
@@ -412,7 +419,11 @@ pub mod pallet {
         fn do_rotate_shards(now: BlockNumberFor<T>) {
             let block_num: u64 = now.try_into().unwrap_or(0u64);
             let epoch_len = T::EpochLength::get() as u64;
-            let epoch = if epoch_len > 0 { (block_num / epoch_len) as u32 } else { 0 };
+            let epoch = if epoch_len > 0 {
+                (block_num / epoch_len) as u32
+            } else {
+                0
+            };
 
             CurrentEpoch::<T>::put(epoch);
 
@@ -451,19 +462,22 @@ pub mod pallet {
                 index_seed[1] ^= ((i >> 8) & 0xFF) as u8;
                 let hash = sp_io::hashing::blake2_256(&index_seed);
                 let j = (u64::from_le_bytes([
-                    hash[0], hash[1], hash[2], hash[3],
-                    hash[4], hash[5], hash[6], hash[7],
-                ]) as usize) % (i + 1);
+                    hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
+                ]) as usize)
+                    % (i + 1);
                 all_validators.swap(i, j);
             }
 
             let vps = ValidatorsPerShard::<T>::get();
-            let validators_per_shard = if vps == 0 { DEFAULT_VALIDATORS_PER_SHARD } else { vps };
+            let validators_per_shard = if vps == 0 {
+                DEFAULT_VALIDATORS_PER_SHARD
+            } else {
+                vps
+            };
 
             // Assign validators to shards round-robin from shuffled list
             for shard_id in 0..shard_count {
-                let mut shard_vals: BoundedVec<T::AccountId, ConstU32<21>> =
-                    BoundedVec::default();
+                let mut shard_vals: BoundedVec<T::AccountId, ConstU32<21>> = BoundedVec::default();
 
                 for v_idx in 0..validators_per_shard {
                     let global_idx = (shard_id as u32 * validators_per_shard + v_idx) as usize;
@@ -475,13 +489,16 @@ pub mod pallet {
                 // Determine region for this shard (majority vote of assigned validators)
                 let region = Self::majority_region(&shard_vals);
 
-                ShardMap::<T>::insert(shard_id, ShardAssignment {
+                ShardMap::<T>::insert(
                     shard_id,
-                    region,
-                    epoch,
-                    validator_count: shard_vals.len() as u32,
-                    assigned_at: now,
-                });
+                    ShardAssignment {
+                        shard_id,
+                        region,
+                        epoch,
+                        validator_count: shard_vals.len() as u32,
+                        assigned_at: now,
+                    },
+                );
 
                 ShardValidators::<T>::insert(shard_id, shard_vals);
             }
@@ -494,7 +511,9 @@ pub mod pallet {
 
             log::info!(
                 "🔄 HyperSwarm epoch {} — {} shards rotated with {} validators",
-                epoch, shard_count, total_validators
+                epoch,
+                shard_count,
+                total_validators
             );
         }
 
@@ -514,7 +533,9 @@ pub mod pallet {
                     counts[idx] += 1;
                 }
             }
-            let max_idx = counts.iter().enumerate()
+            let max_idx = counts
+                .iter()
+                .enumerate()
                 .max_by_key(|(_, c)| *c)
                 .map(|(i, _)| i)
                 .unwrap_or(0);
@@ -547,10 +568,18 @@ pub mod pallet {
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
-            let shard_count = if self.initial_shard_count == 0 { 8 } else { self.initial_shard_count };
+            let shard_count = if self.initial_shard_count == 0 {
+                8
+            } else {
+                self.initial_shard_count
+            };
             ActiveShardCount::<T>::put(shard_count);
 
-            let vps = if self.validators_per_shard == 0 { DEFAULT_VALIDATORS_PER_SHARD } else { self.validators_per_shard };
+            let vps = if self.validators_per_shard == 0 {
+                DEFAULT_VALIDATORS_PER_SHARD
+            } else {
+                self.validators_per_shard
+            };
             ValidatorsPerShard::<T>::put(vps);
             RequireStakedValidators::<T>::put(self.require_staked_validators);
 
@@ -560,12 +589,15 @@ pub mod pallet {
                     .try_into()
                     .expect("Genesis validator endpoint too long");
 
-                Validators::<T>::insert(account, SwarmValidator {
-                    region: region.clone(),
-                    endpoint,
-                    registered_at: BlockNumberFor::<T>::default(),
-                    active: true,
-                });
+                Validators::<T>::insert(
+                    account,
+                    SwarmValidator {
+                        region: region.clone(),
+                        endpoint,
+                        registered_at: BlockNumberFor::<T>::default(),
+                        active: true,
+                    },
+                );
                 TotalValidators::<T>::mutate(|n| *n = n.saturating_add(1));
             }
 

@@ -2,9 +2,9 @@
 //!
 //! Constructs and starts the full TKS blockchain node with Frontier EVM backend.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
-use std::collections::BTreeMap;
 
 use futures::{FutureExt, StreamExt};
 use sc_client_api::{Backend, BlockBackend, BlockchainEvents};
@@ -13,9 +13,9 @@ use sc_consensus_grandpa::SharedVoterState;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager, WarpSyncConfig};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
-use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
 use sp_api::{Core, ProvideRuntimeApi};
 use sp_blockchain::HeaderBackend;
+use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
 use sp_core::Pair;
 use sp_runtime::traits::Block as BlockT;
 
@@ -24,10 +24,8 @@ use fc_mapping_sync::{kv::MappingSyncWorker, SyncStrategy};
 use fc_rpc_core::types::{FeeHistoryCache, FilterPool};
 
 /// Alias for the network backend type.
-type NetworkBackend = sc_network::NetworkWorker<
-    tks_runtime::Block,
-    <tks_runtime::Block as BlockT>::Hash,
->;
+type NetworkBackend =
+    sc_network::NetworkWorker<tks_runtime::Block, <tks_runtime::Block as BlockT>::Hash>;
 
 pub type HostFunctions = (
     sp_io::SubstrateHostFunctions,
@@ -57,7 +55,11 @@ pub type FrontierBackend = fc_db::kv::Backend<tks_runtime::Block, FullClient>;
 
 /// Get the Frontier database directory.
 pub fn frontier_database_dir(config: &Configuration) -> std::path::PathBuf {
-    config.base_path.config_dir(config.chain_spec.id()).join("frontier").join("db")
+    config
+        .base_path
+        .config_dir(config.chain_spec.id())
+        .join("frontier")
+        .join("db")
 }
 
 /// Open the Frontier KV backend.
@@ -71,9 +73,9 @@ pub fn open_frontier_backend(
             path: "".into(),
             cache_size: 0,
         },
-        sc_service::DatabaseSource::ParityDb { .. } => fc_db::kv::DatabaseSource::ParityDb {
-            path: "".into(),
-        },
+        sc_service::DatabaseSource::ParityDb { .. } => {
+            fc_db::kv::DatabaseSource::ParityDb { path: "".into() }
+        }
         _ => fc_db::kv::DatabaseSource::Auto {
             rocksdb_path: "".into(),
             paritydb_path: "".into(),
@@ -87,8 +89,6 @@ pub fn open_frontier_backend(
         &db_config_dir,
     )?))
 }
-
-
 
 /// Build the partial components required for the node.
 pub fn new_partial(
@@ -158,8 +158,8 @@ pub fn new_partial(
 
     let slot_duration = sc_consensus_aura::slot_duration(&*client)?;
 
-    let import_queue =
-        sc_consensus_aura::import_queue::<AuraPair, _, _, _, _, _>(ImportQueueParams {
+    let import_queue = sc_consensus_aura::import_queue::<AuraPair, _, _, _, _, _>(
+        ImportQueueParams {
             block_import: grandpa_block_import.clone(),
             justification_import: Some(Box::new(grandpa_block_import.clone())),
             client: client.clone(),
@@ -177,7 +177,8 @@ pub fn new_partial(
             check_for_equivocation: Default::default(),
             telemetry: telemetry.as_ref().map(|x| x.handle()),
             compatibility_mode: Default::default(),
-        })?;
+        },
+    )?;
 
     // Open Frontier KV backend
     let frontier_backend = open_frontier_backend(client.clone(), config)?;
@@ -190,7 +191,12 @@ pub fn new_partial(
         keystore_container,
         select_chain,
         transaction_pool: Arc::new(transaction_pool),
-        other: (grandpa_block_import, grandpa_link, telemetry, frontier_backend),
+        other: (
+            grandpa_block_import,
+            grandpa_link,
+            telemetry,
+            frontier_backend,
+        ),
     })
 }
 
@@ -244,13 +250,10 @@ pub fn new_full(
         .flatten()
         .expect("Genesis block exists; qed");
 
-    let grandpa_protocol_name = sc_consensus_grandpa::protocol_standard_name(
-        &genesis_hash,
-        &config.chain_spec,
-    );
+    let grandpa_protocol_name =
+        sc_consensus_grandpa::protocol_standard_name(&genesis_hash, &config.chain_spec);
 
-    let metrics =
-        sc_network::NotificationMetrics::new(config.prometheus_registry());
+    let metrics = sc_network::NotificationMetrics::new(config.prometheus_registry());
 
     let mut net_config = sc_network::config::FullNetworkConfiguration::<
         tks_runtime::Block,
@@ -290,18 +293,19 @@ pub fn new_full(
         })?;
 
     if config.offchain_worker.enabled {
-        let offchain_workers = sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
-            runtime_api_provider: client.clone(),
-            is_validator: config.role.is_authority(),
-            keystore: Some(keystore_container.keystore()),
-            offchain_db: backend.offchain_storage(),
-            transaction_pool: Some(OffchainTransactionPoolFactory::new(
-                transaction_pool.clone(),
-            )),
-            network_provider: Arc::new(network.clone()),
-            enable_http_requests: true,
-            custom_extensions: |_| vec![],
-        })?;
+        let offchain_workers =
+            sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
+                runtime_api_provider: client.clone(),
+                is_validator: config.role.is_authority(),
+                keystore: Some(keystore_container.keystore()),
+                offchain_db: backend.offchain_storage(),
+                transaction_pool: Some(OffchainTransactionPoolFactory::new(
+                    transaction_pool.clone(),
+                )),
+                network_provider: Arc::new(network.clone()),
+                enable_http_requests: true,
+                custom_extensions: |_| vec![],
+            })?;
 
         task_manager.spawn_handle().spawn(
             "offchain-workers-runner",
@@ -328,9 +332,7 @@ pub fn new_full(
     let pubsub_notification_sinks = Arc::new(pubsub_notification_sinks);
 
     // Frontier: Filter pool for eth_newFilter / eth_getFilterChanges
-    let filter_pool: Option<FilterPool> = Some(Arc::new(std::sync::Mutex::new(
-        BTreeMap::new(),
-    )));
+    let filter_pool: Option<FilterPool> = Some(Arc::new(std::sync::Mutex::new(BTreeMap::new())));
 
     // Frontier: Fee history cache
     let fee_history_cache: FeeHistoryCache = Arc::new(std::sync::Mutex::new(BTreeMap::new()));
@@ -358,7 +360,7 @@ pub fn new_full(
                 backend_for_sync,
                 storage_override_for_sync,
                 frontier_backend_for_sync,
-                100,    // sync batch size: index up to 100 blocks per tick for fast backfill
+                100, // sync batch size: index up to 100 blocks per tick for fast backfill
                 0u32.into(),
                 SyncStrategy::Normal,
                 sync_service_for_sync,
@@ -400,7 +402,8 @@ pub fn new_full(
                 enable_dev_signer,
                 network: network.clone(),
                 sync: sync.clone(),
-                frontier_backend: frontier_backend.clone() as Arc<dyn fc_api::Backend<tks_runtime::Block>>,
+                frontier_backend: frontier_backend.clone()
+                    as Arc<dyn fc_api::Backend<tks_runtime::Block>>,
                 storage_override: storage_override.clone(),
                 block_data_cache: block_data_cache.clone(),
                 filter_pool: filter_pool.clone(),
@@ -523,8 +526,8 @@ pub fn new_full(
             protocol_name: grandpa_protocol_name,
         };
 
-        let grandpa = sc_consensus_grandpa::run_grandpa_voter(
-            sc_consensus_grandpa::GrandpaParams {
+        let grandpa =
+            sc_consensus_grandpa::run_grandpa_voter(sc_consensus_grandpa::GrandpaParams {
                 config: grandpa_config,
                 link: grandpa_link,
                 network,
@@ -537,8 +540,7 @@ pub fn new_full(
                 offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(
                     transaction_pool.clone(),
                 ),
-            },
-        )?;
+            })?;
 
         task_manager
             .spawn_essential_handle()
@@ -633,7 +635,10 @@ pub fn new_full(
                         );
                     }
                     Err(e) => {
-                        log::error!("Cannot read --cipher-anchor-seed-file {}: {e}", path.display());
+                        log::error!(
+                            "Cannot read --cipher-anchor-seed-file {}: {e}",
+                            path.display()
+                        );
                     }
                 }
             } else {
@@ -648,33 +653,32 @@ pub fn new_full(
     if cipher.enable_relay {
         let relay_port = cipher.relay_port;
         let shard_ingest_url = if cipher.enable_shard_executor {
-            Some(format!(
-                "http://127.0.0.1:{}/ingest",
-                cipher.shard_port
-            ))
+            Some(format!("http://127.0.0.1:{}/ingest", cipher.shard_port))
         } else {
             None
         };
         let chain_rpc_url = chain_rpc_url.clone();
         let cipher_relay = cipher.clone();
-        task_manager.spawn_essential_handle().spawn("cipher-relay", Some("network"), async move {
-            log::info!("Starting embedded Cipher relay on port {relay_port}...");
-            let relay_cfg = cipher_relay::RelayServerConfig {
-                port: relay_port,
-                shard_ingest_url,
-                hybrid,
-                enable_hyperswarm: cipher_relay.enable_hyperswarm,
-                hyperswarm_port: cipher_relay.hyperswarm_port,
-                public_relay_url: cipher_relay.public_relay_url.clone(),
-                chain_rpc_url: Some(chain_rpc_url),
-                hyperswarm_bootnodes: cipher_relay.hyperswarm_bootnodes.clone(),
-                hyperswarm_region: Some(cipher_relay.hyperswarm_region.clone()),
-                build_info: cipher_build_info.clone(),
-            };
-            if let Err(e) = cipher_relay::run_relay_server_with(relay_cfg).await {
-                log::error!("Cipher relay exited with error: {e:?}");
-            }
-        });
+        task_manager
+            .spawn_essential_handle()
+            .spawn("cipher-relay", Some("network"), async move {
+                log::info!("Starting embedded Cipher relay on port {relay_port}...");
+                let relay_cfg = cipher_relay::RelayServerConfig {
+                    port: relay_port,
+                    shard_ingest_url,
+                    hybrid,
+                    enable_hyperswarm: cipher_relay.enable_hyperswarm,
+                    hyperswarm_port: cipher_relay.hyperswarm_port,
+                    public_relay_url: cipher_relay.public_relay_url.clone(),
+                    chain_rpc_url: Some(chain_rpc_url),
+                    hyperswarm_bootnodes: cipher_relay.hyperswarm_bootnodes.clone(),
+                    hyperswarm_region: Some(cipher_relay.hyperswarm_region.clone()),
+                    build_info: cipher_build_info.clone(),
+                };
+                if let Err(e) = cipher_relay::run_relay_server_with(relay_cfg).await {
+                    log::error!("Cipher relay exited with error: {e:?}");
+                }
+            });
     }
 
     Ok(task_manager)

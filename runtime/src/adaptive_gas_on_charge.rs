@@ -6,7 +6,7 @@ use core::marker::PhantomData;
 use fp_evm::FeeCalculator;
 use frame_support::traits::fungible::{Balanced, Credit, Inspect};
 use pallet_evm::{
-    AccountIdOf, Config as EvmConfig, Error, EVMFungibleAdapter, OnChargeEVMTransaction,
+    AccountIdOf, Config as EvmConfig, EVMFungibleAdapter, Error, OnChargeEVMTransaction,
 };
 use sp_core::{H160, U256};
 use sp_runtime::traits::UniqueSaturatedInto;
@@ -23,9 +23,7 @@ where
     type LiquidityInfo = Option<Credit<AccountIdOf<T>, T::Currency>>;
 
     fn withdraw_fee(who: &H160, fee: U256) -> Result<Self::LiquidityInfo, Error<T>> {
-        <EVMFungibleAdapter<T::Currency, ()> as OnChargeEVMTransaction<T>>::withdraw_fee(
-            who, fee,
-        )
+        <EVMFungibleAdapter<T::Currency, ()> as OnChargeEVMTransaction<T>>::withdraw_fee(who, fee)
     }
 
     fn correct_and_deposit_fee(

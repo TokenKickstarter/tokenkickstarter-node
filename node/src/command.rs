@@ -5,7 +5,6 @@ use sc_cli::SubstrateCli;
 use sc_service::PartialComponents;
 use tks_runtime::{MIN_SUPPORTED_SPEC_VERSION, SPEC_VERSION_TOLERANCE, VERSION};
 
-
 impl SubstrateCli for Cli {
     fn impl_name() -> String {
         "TKS Chain Node".into()
@@ -87,8 +86,10 @@ fn check_node_version(on_chain_spec_version: Option<u32>) {
                  ║  Please update your TKS node binary:                        ║\n\
                  ║  https://github.com/TokenKickstarter/tks-node/releases      ║\n\
                  ╚══════════════════════════════════════════════════════════════╝",
-                binary_version, on_chain,
-                MIN_SUPPORTED_SPEC_VERSION, SPEC_VERSION_TOLERANCE
+                binary_version,
+                on_chain,
+                MIN_SUPPORTED_SPEC_VERSION,
+                SPEC_VERSION_TOLERANCE
             );
             std::process::exit(1);
         } else if binary_version < on_chain {
@@ -98,7 +99,9 @@ fn check_node_version(on_chain_spec_version: Option<u32>) {
                  (binary: {}, on-chain: {}). Update soon — nodes more than {} \
                  versions behind will be rejected. Get the latest binary: \
                  https://github.com/TokenKickstarter/tks-node/releases",
-                on_chain - binary_version, binary_version, on_chain,
+                on_chain - binary_version,
+                binary_version,
+                on_chain,
                 SPEC_VERSION_TOLERANCE
             );
         }
@@ -108,7 +111,9 @@ fn check_node_version(on_chain_spec_version: Option<u32>) {
     log::info!(
         "TKS Node binary spec_version: {} | tolerance window: ±{} | \
          min supported: {}",
-        binary_version, SPEC_VERSION_TOLERANCE, MIN_SUPPORTED_SPEC_VERSION
+        binary_version,
+        SPEC_VERSION_TOLERANCE,
+        MIN_SUPPORTED_SPEC_VERSION
     );
 }
 
@@ -119,7 +124,6 @@ pub fn run() -> sc_cli::Result<()> {
     check_node_version(None);
 
     let cli = Cli::from_args();
-
 
     match &cli.subcommand {
         Some(Subcommand::Key(cmd)) => cmd.run(&cli),

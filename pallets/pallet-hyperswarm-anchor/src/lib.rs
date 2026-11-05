@@ -58,7 +58,9 @@ pub mod pallet {
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
     /// One batch leaf. Lengths match `cipher_merkle::MAX_LEAF_FIELD_LEN`.
-    #[derive(Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Debug, PartialEq, Eq)]
+    #[derive(
+        Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Debug, PartialEq, Eq,
+    )]
     pub struct AnchorLeaf {
         pub msg_id: BoundedVec<u8, ConstU32<128>>,
         pub sender_id: BoundedVec<u8, ConstU32<128>>,
@@ -69,7 +71,9 @@ pub mod pallet {
 
     /// Poster and declared count for a root. Separate from [`AnchorEntry`] so a
     /// runtime upgrade does not change anchors already stored on spec 412.
-    #[derive(Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Debug, PartialEq, Eq)]
+    #[derive(
+        Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Debug, PartialEq, Eq,
+    )]
     pub struct AnchorCommitment<AccountId, BlockNumber> {
         pub poster: AccountId,
         pub message_count: u32,
@@ -95,7 +99,9 @@ pub mod pallet {
     }
 
     /// Challenge status
-    #[derive(Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Debug, PartialEq, Eq)]
+    #[derive(
+        Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Debug, PartialEq, Eq,
+    )]
     pub enum ChallengeStatus {
         /// Challenge is pending resolution
         Pending,
@@ -126,24 +132,20 @@ pub mod pallet {
     /// Only the most recent anchor per shard is stored for quick lookup.
     #[pallet::storage]
     #[pallet::getter(fn latest_anchor)]
-    pub type LatestAnchors<T: Config> = StorageMap<
-        _, Blake2_128Concat, u16, AnchorEntry<BlockNumberFor<T>>,
-    >;
+    pub type LatestAnchors<T: Config> =
+        StorageMap<_, Blake2_128Concat, u16, AnchorEntry<BlockNumberFor<T>>>;
 
     /// Historical anchor index: (shard_id, epoch) → dag_root_hash.
     /// Allows querying past anchors for verification.
     #[pallet::storage]
     #[pallet::getter(fn anchor_history)]
-    pub type AnchorHistory<T: Config> = StorageDoubleMap<
-        _, Blake2_128Concat, u16, Blake2_128Concat, u32, [u8; 32],
-    >;
+    pub type AnchorHistory<T: Config> =
+        StorageDoubleMap<_, Blake2_128Concat, u16, Blake2_128Concat, u32, [u8; 32]>;
 
     /// Total messages processed per shard (lifetime counter).
     #[pallet::storage]
     #[pallet::getter(fn shard_message_count)]
-    pub type ShardMessageCount<T: Config> = StorageMap<
-        _, Blake2_128Concat, u16, u64, ValueQuery,
-    >;
+    pub type ShardMessageCount<T: Config> = StorageMap<_, Blake2_128Concat, u16, u64, ValueQuery>;
 
     /// Total messages processed across all shards (lifetime counter).
     #[pallet::storage]
@@ -158,9 +160,8 @@ pub mod pallet {
     /// Active challenges: anchor_hash → Challenge.
     #[pallet::storage]
     #[pallet::getter(fn challenges)]
-    pub type Challenges<T: Config> = StorageMap<
-        _, Blake2_128Concat, [u8; 32], Challenge<T::AccountId, BlockNumberFor<T>>,
-    >;
+    pub type Challenges<T: Config> =
+        StorageMap<_, Blake2_128Concat, [u8; 32], Challenge<T::AccountId, BlockNumberFor<T>>>;
 
     /// Total number of challenges submitted (for metrics).
     #[pallet::storage]
@@ -196,10 +197,7 @@ pub mod pallet {
             anchor_hash: [u8; 32],
         },
         /// Challenge resolved.
-        ChallengeResolved {
-            anchor_hash: [u8; 32],
-            valid: bool,
-        },
+        ChallengeResolved { anchor_hash: [u8; 32], valid: bool },
         /// Poster balance was burned for a false anchor.
         AnchorSlashed {
             dag_root_hash: [u8; 32],
@@ -323,7 +321,9 @@ pub mod pallet {
 
             log::debug!(
                 "⚓ Anchor posted: shard={}, epoch={}, msgs={}, root=0x{}",
-                shard_id, epoch, message_count,
+                shard_id,
+                epoch,
+                message_count,
                 hex_prefix(&dag_root_hash),
             );
 
@@ -349,8 +349,7 @@ pub mod pallet {
             let who = ensure_signed(origin)?;
 
             // Verify the anchor exists
-            let anchor = LatestAnchors::<T>::get(shard_id)
-                .ok_or(Error::<T>::AnchorNotFound)?;
+            let anchor = LatestAnchors::<T>::get(shard_id).ok_or(Error::<T>::AnchorNotFound)?;
 
             // Check challenge window
             let now = frame_system::Pallet::<T>::block_number();
@@ -364,13 +363,16 @@ pub mod pallet {
                 Error::<T>::ChallengeAlreadyExists
             );
 
-            Challenges::<T>::insert(anchor_hash, Challenge {
-                challenger: who.clone(),
-                shard_id,
+            Challenges::<T>::insert(
                 anchor_hash,
-                submitted_at: now,
-                status: ChallengeStatus::Pending,
-            });
+                Challenge {
+                    challenger: who.clone(),
+                    shard_id,
+                    anchor_hash,
+                    submitted_at: now,
+                    status: ChallengeStatus::Pending,
+                },
+            );
 
             TotalChallenges::<T>::mutate(|n| *n = n.saturating_add(1));
 
@@ -399,7 +401,9 @@ pub mod pallet {
             ensure_root(origin)?;
 
             Challenges::<T>::try_mutate(&anchor_hash, |maybe_challenge| -> DispatchResult {
-                let challenge = maybe_challenge.as_mut().ok_or(Error::<T>::ChallengeNotFound)?;
+                let challenge = maybe_challenge
+                    .as_mut()
+                    .ok_or(Error::<T>::ChallengeNotFound)?;
                 ensure!(
                     challenge.status == ChallengeStatus::Pending,
                     Error::<T>::ChallengeNotPending
@@ -464,7 +468,10 @@ pub mod pallet {
                     stored_at: leaf.stored_at,
                 })
                 .collect();
-            ensure!(merkle_root(&plain) == dag_root_hash, Error::<T>::InvalidMerkleProof);
+            ensure!(
+                merkle_root(&plain) == dag_root_hash,
+                Error::<T>::InvalidMerkleProof
+            );
 
             AnchorByRoot::<T>::try_mutate(dag_root_hash, |maybe| -> DispatchResult {
                 let commitment = maybe.as_mut().ok_or(Error::<T>::AnchorNotFound)?;
@@ -513,7 +520,13 @@ pub mod pallet {
 
     /// Format first 4 bytes of a hash as hex for logging.
     fn hex_prefix(hash: &[u8; 32]) -> alloc::string::String {
-        alloc::format!("{:02x}{:02x}{:02x}{:02x}...", hash[0], hash[1], hash[2], hash[3])
+        alloc::format!(
+            "{:02x}{:02x}{:02x}{:02x}...",
+            hash[0],
+            hash[1],
+            hash[2],
+            hash[3]
+        )
     }
 
     // ─── Genesis Config ────────────────────────────────────────────────

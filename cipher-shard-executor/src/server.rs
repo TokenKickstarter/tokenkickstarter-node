@@ -1,7 +1,5 @@
 //! HTTP ingest API for shard messages.
 
-use std::convert::Infallible;
-use std::net::SocketAddr;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -9,6 +7,8 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use std::convert::Infallible;
+use std::net::SocketAddr;
 use tokio::net::TcpListener;
 
 use std::sync::Arc;
@@ -80,9 +80,9 @@ async fn handle_hybrid(
             });
             ok_json(&body.to_string())
         }
-        (Method::POST, "/ack") => {
-            ok_json(r#"{"deleted":0,"note":"Shard does not retain ciphertext; POST /ack to relay.tokenkickstarter.com"}"#)
-        }
+        (Method::POST, "/ack") => ok_json(
+            r#"{"deleted":0,"note":"Shard does not retain ciphertext; POST /ack to relay.tokenkickstarter.com"}"#,
+        ),
         (Method::POST, "/ingest") => {
             let bytes = match body.collect().await {
                 Ok(collected) => collected.to_bytes(),

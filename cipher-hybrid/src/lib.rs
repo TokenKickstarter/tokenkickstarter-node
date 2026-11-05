@@ -150,8 +150,8 @@ impl HybridController {
             ),
             HybridMode::Ramp => {
                 let t = measured.clamp(cfg.floor_tps, cfg.ceiling_aggregate_tps);
-                let ratio = (t - cfg.floor_tps) as f64
-                    / (cfg.floor_tps.saturating_mul(9).max(1) as f64);
+                let ratio =
+                    (t - cfg.floor_tps) as f64 / (cfg.floor_tps.saturating_mul(9).max(1) as f64);
                 let interval = (1_000.0 - ratio * 990.0).max(10.0) as u64;
                 let batch = (t / cfg.logical_shard_count as u64).clamp(500, 20_000) as u32;
                 (t, interval, batch)
@@ -237,9 +237,6 @@ mod tests {
         std::thread::sleep(Duration::from_millis(600));
         let s = c.settings();
         assert_eq!(s.mode, HybridMode::Peak);
-        assert_eq!(
-            s.target_aggregate_tps,
-            DEFAULT_CEILING_AGGREGATE_TPS
-        );
+        assert_eq!(s.target_aggregate_tps, DEFAULT_CEILING_AGGREGATE_TPS);
     }
 }

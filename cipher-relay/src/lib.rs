@@ -15,14 +15,14 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use cipher_hybrid::HybridController;
-use tokio::sync::{RwLock, Notify};
-use log::{info, warn, debug};
-use hyper::{body::Incoming, Request, Response, Method, StatusCode};
-use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
-use http_body_util::{Full, BodyExt};
 use bytes::Bytes;
+use cipher_hybrid::HybridController;
+use http_body_util::{BodyExt, Full};
+use hyper::service::service_fn;
+use hyper::{body::Incoming, Method, Request, Response, StatusCode};
+use hyper_util::rt::TokioIo;
+use log::{debug, info, warn};
+use tokio::sync::{Notify, RwLock};
 
 pub mod build_info;
 pub mod discovery;
@@ -46,10 +46,20 @@ pub struct EncryptedChunk {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum RelayRequest {
     Store(EncryptedChunk),
-    Fetch { recipient_id: String },
-    Ack { recipient_id: String, message_ids: Vec<String> },
-    Register { evm_address: String },
-    RpcProxy { endpoint: String, body: String },
+    Fetch {
+        recipient_id: String,
+    },
+    Ack {
+        recipient_id: String,
+        message_ids: Vec<String>,
+    },
+    Register {
+        evm_address: String,
+    },
+    RpcProxy {
+        endpoint: String,
+        body: String,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -122,7 +132,8 @@ impl ChunkStore {
 
     fn register(&mut self, evm_address: &str) {
         let now = chrono::Utc::now().timestamp() as u64;
-        self.registered_peers.insert(evm_address.to_lowercase(), now);
+        self.registered_peers
+            .insert(evm_address.to_lowercase(), now);
     }
 
     fn cleanup_expired(&mut self) {
@@ -142,20 +153,25 @@ impl ChunkStore {
 
     fn stats(&self) -> (usize, usize, usize) {
         let total_chunks: usize = self.chunks.values().map(|v| v.len()).sum();
-        (total_chunks, self.current_bytes, self.registered_peers.len())
+        (
+            total_chunks,
+            self.current_bytes,
+            self.registered_peers.len(),
+        )
     }
 
     pub(crate) fn get_chunk(&self, recipient_id: &str, message_id: &str) -> Option<EncryptedChunk> {
-        self.chunks.get(recipient_id).and_then(|list| {
-            list.iter()
-                .find(|c| c.message_id == message_id)
-                .cloned()
-        })
+        self.chunks
+            .get(recipient_id)
+            .and_then(|list| list.iter().find(|c| c.message_id == message_id).cloned())
     }
 
     /// Idempotent store for HyperSwarm replication (same message_id allowed once).
     pub(crate) fn store_replicate(&mut self, chunk: EncryptedChunk) -> Result<(), String> {
-        if self.get_chunk(&chunk.recipient_id, &chunk.message_id).is_some() {
+        if self
+            .get_chunk(&chunk.recipient_id, &chunk.message_id)
+            .is_some()
+        {
             return Ok(());
         }
         self.store(chunk).map(|_| ())
@@ -214,9 +230,16 @@ async fn handle_request(
     } = ctx;
     // CORS headers for all responses
     let cors_headers = |mut resp: Response<Full<Bytes>>| -> Response<Full<Bytes>> {
-        resp.headers_mut().insert("Access-Control-Allow-Origin", "*".parse().unwrap());
-        resp.headers_mut().insert("Access-Control-Allow-Methods", "POST, OPTIONS".parse().unwrap());
-        resp.headers_mut().insert("Access-Control-Allow-Headers", "Content-Type".parse().unwrap());
+        resp.headers_mut()
+            .insert("Access-Control-Allow-Origin", "*".parse().unwrap());
+        resp.headers_mut().insert(
+            "Access-Control-Allow-Methods",
+            "POST, OPTIONS".parse().unwrap(),
+        );
+        resp.headers_mut().insert(
+            "Access-Control-Allow-Headers",
+            "Content-Type".parse().unwrap(),
+        );
         resp
     };
 
@@ -434,14 +457,9 @@ fn mesh_replicate(
 ) {
     tokio::spawn(async move {
         let peer_id = swarm.as_ref().map(|s| s.local_peer_id().to_string());
-        let disc = discovery::build_discovery(
-            self_http.clone(),
-            peer_id,
-            chain_rpc_url,
-            swarm,
-            None,
-        )
-        .await;
+        let disc =
+            discovery::build_discovery(self_http.clone(), peer_id, chain_rpc_url, swarm, None)
+                .await;
         let client = reqwest::Client::new();
         for relay in disc.relays.iter().take(8) {
             if relay.http_base.is_empty() {
@@ -530,15 +548,21 @@ async fn handle_relay_request(
                 let mut s = store.write().await;
                 let chunks = s.fetch(&recipient_id);
                 if !chunks.is_empty() {
-                    info!("📬 Fetch (Instant): {} chunks for {}", chunks.len(), recipient_id);
+                    info!(
+                        "📬 Fetch (Instant): {} chunks for {}",
+                        chunks.len(),
+                        recipient_id
+                    );
                     return bincode::serialize(&RelayResponse::Chunks(chunks)).unwrap_or_default();
                 }
-                s.notifiers.entry(recipient_id.clone())
+                s.notifiers
+                    .entry(recipient_id.clone())
                     .or_insert_with(|| Arc::new(tokio::sync::Notify::new()))
                     .clone()
             };
 
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(25), notifier.notified()).await;
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_secs(25), notifier.notified()).await;
 
             if let Some(ref hs) = hyperswarm {
                 let _ = hs.pull_for_recipient(&recipient_id).await;
@@ -549,11 +573,18 @@ async fn handle_relay_request(
             if chunks.is_empty() {
                 debug!("💤 Fetch (Timeout): 0 chunks for {}", recipient_id);
             } else {
-                info!("📬 Fetch (Woken): {} chunks for {}", chunks.len(), recipient_id);
+                info!(
+                    "📬 Fetch (Woken): {} chunks for {}",
+                    chunks.len(),
+                    recipient_id
+                );
             }
             RelayResponse::Chunks(chunks)
         }
-        RelayRequest::Ack { recipient_id, message_ids } => {
+        RelayRequest::Ack {
+            recipient_id,
+            message_ids,
+        } => {
             let mut s = store.write().await;
             let deleted = s.ack(&recipient_id, &message_ids);
             info!("✓ Acked {} chunks for {}", deleted, recipient_id);
@@ -569,21 +600,18 @@ async fn handle_relay_request(
             info!("🔄 Proxying RPC to {} ({} bytes)", endpoint, body.len());
             // Create a temporary client. In production, this can be cached.
             let client = reqwest::Client::new();
-            match client.post(&endpoint)
+            match client
+                .post(&endpoint)
                 .header("Content-Type", "application/json")
                 .body(body)
                 .send()
                 .await
             {
-                Ok(resp) => {
-                    match resp.text().await {
-                        Ok(text) => RelayResponse::RpcResult { body: text },
-                        Err(e) => RelayResponse::Error(format!("Failed to read RPC response: {}", e)),
-                    }
-                }
-                Err(e) => {
-                    RelayResponse::Error(format!("Failed to proxy RPC: {}", e))
-                }
+                Ok(resp) => match resp.text().await {
+                    Ok(text) => RelayResponse::RpcResult { body: text },
+                    Err(e) => RelayResponse::Error(format!("Failed to read RPC response: {}", e)),
+                },
+                Err(e) => RelayResponse::Error(format!("Failed to proxy RPC: {}", e)),
             }
         }
     };
@@ -661,7 +689,10 @@ pub async fn run_relay_server_with(
             let mut s = store_cleanup.write().await;
             s.cleanup_expired();
             let (chunks, bytes, peers) = s.stats();
-            info!("🧹 Cleanup: {} chunks, {} bytes, {} peers", chunks, bytes, peers);
+            info!(
+                "🧹 Cleanup: {} chunks, {} bytes, {} peers",
+                chunks, bytes, peers
+            );
         }
     });
 

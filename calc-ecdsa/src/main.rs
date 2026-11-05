@@ -1,7 +1,7 @@
-use sp_core::{ecdsa, Pair};
 use keccak_hash::keccak;
+use parity_scale_codec::{Compact, Encode};
 use sha3::{Digest, Keccak256};
-use parity_scale_codec::{Encode, Compact};
+use sp_core::{ecdsa, Pair};
 
 fn sha3_keccak256(data: &[u8]) -> [u8; 32] {
     let mut hasher = Keccak256::new();
@@ -18,8 +18,7 @@ fn main() {
     // 1. Use //Alice dev key
     let pair = ecdsa::Pair::from_string("//Alice", None).expect("Valid seed");
     let pubkey = pair.public();
-    let pkey = libsecp256k1::PublicKey::parse_compressed(&pubkey.0)
-        .expect("Valid public key");
+    let pkey = libsecp256k1::PublicKey::parse_compressed(&pubkey.0).expect("Valid public key");
     let uncompressed = pkey.serialize();
     let hash = keccak(&uncompressed[1..65]);
     let address: [u8; 20] = hash.0[12..32].try_into().unwrap();
@@ -27,13 +26,14 @@ fn main() {
     println!("Address: 0x{}", hex::encode(&address));
 
     // 2. Real chain parameters
-    let genesis_hash = hex::decode("49397761c3e00070b4aef07df523f658b19ad9da0112584de30e0e9dd78d59e4").unwrap();
+    let genesis_hash =
+        hex::decode("49397761c3e00070b4aef07df523f658b19ad9da0112584de30e0e9dd78d59e4").unwrap();
     let spec_version: u32 = 200;
     let tx_version: u32 = 1;
 
     // 3. Build call data: NameRegistry::register("alice_test")
     let pallet_index: u8 = 20; // NameRegistry pallet index
-    let call_index: u8 = 0;    // register
+    let call_index: u8 = 0; // register
     let name_bytes = b"alice_test".to_vec();
     let mut call_data = Vec::new();
     call_data.push(pallet_index);
@@ -44,9 +44,9 @@ fn main() {
 
     // 4. Build extension (goes in extrinsic body)
     let mut extra = Vec::new();
-    extra.push(0x00u8);  // Era: immortal
-    Compact(0u32).encode_to(&mut extra);  // Nonce: 0
-    Compact(0u128).encode_to(&mut extra);  // Tip: 0
+    extra.push(0x00u8); // Era: immortal
+    Compact(0u32).encode_to(&mut extra); // Nonce: 0
+    Compact(0u128).encode_to(&mut extra); // Tip: 0
     println!("Extension: 0x{}", hex::encode(&extra));
 
     // 5. Build signing payload: call + extra + implicit
@@ -54,10 +54,14 @@ fn main() {
     payload.extend_from_slice(&call_data);
     payload.extend_from_slice(&extra);
     spec_version.encode_to(&mut payload); // u32 LE
-    tx_version.encode_to(&mut payload);   // u32 LE
+    tx_version.encode_to(&mut payload); // u32 LE
     payload.extend_from_slice(&genesis_hash); // 32 bytes
     payload.extend_from_slice(&genesis_hash); // checkpoint = genesis for immortal era
-    println!("Signing payload ({} bytes): 0x{}", payload.len(), hex::encode(&payload));
+    println!(
+        "Signing payload ({} bytes): 0x{}",
+        payload.len(),
+        hex::encode(&payload)
+    );
 
     // 6. Hash and sign
     let msg_hash = sha3_keccak256(&payload);
@@ -89,8 +93,8 @@ fn main() {
     let mut extrinsic_body = Vec::new();
     extrinsic_body.push(0x84u8); // Version: signed (0x80) | v4 (0x04)
     extrinsic_body.extend_from_slice(&address); // 20 bytes
-    extrinsic_body.extend_from_slice(&sig_65);  // 65 bytes
-    extrinsic_body.extend_from_slice(&extra);   // extension
+    extrinsic_body.extend_from_slice(&sig_65); // 65 bytes
+    extrinsic_body.extend_from_slice(&extra); // extension
     extrinsic_body.extend_from_slice(&call_data); // call
 
     let mut extrinsic = Vec::new();
@@ -109,7 +113,14 @@ fn main() {
     );
 
     let response = std::process::Command::new("curl")
-        .args(&["-s", "-H", "Content-Type: application/json", "-d", &body, "http://127.0.0.1:9944"])
+        .args(&[
+            "-s",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            &body,
+            "http://127.0.0.1:9944",
+        ])
         .output()
         .expect("curl failed");
     let resp_str = String::from_utf8_lossy(&response.stdout);
@@ -124,9 +135,19 @@ fn main() {
             hex::encode(&address)
         );
         let nonce_resp = std::process::Command::new("curl")
-            .args(&["-s", "-H", "Content-Type: application/json", "-d", &nonce_body, "http://127.0.0.1:9944"])
+            .args(&[
+                "-s",
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                &nonce_body,
+                "http://127.0.0.1:9944",
+            ])
             .output()
             .expect("curl failed");
-        println!("Nonce response: {}", String::from_utf8_lossy(&nonce_resp.stdout));
+        println!(
+            "Nonce response: {}",
+            String::from_utf8_lossy(&nonce_resp.stdout)
+        );
     }
 }

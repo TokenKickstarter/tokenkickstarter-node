@@ -131,12 +131,7 @@ pub mod pallet {
     /// This is the single source of truth for how many transactions fit per block.
     #[pallet::storage]
     #[pallet::getter(fn current_gas_limit)]
-    pub type CurrentGasLimit<T: Config> = StorageValue<
-        _,
-        u64,
-        ValueQuery,
-        T::InitialGasLimit,
-    >;
+    pub type CurrentGasLimit<T: Config> = StorageValue<_, u64, ValueQuery, T::InitialGasLimit>;
 
     /// Gas consumed by the LAST finalized block (set in on_finalize).
     #[pallet::storage]
@@ -384,7 +379,10 @@ mod budget_tests {
             }
             let cap = max_gas_within_weight(normal_max, wpg);
             assert!(used <= header, "header {header}: filled {used} > gasLimit");
-            assert!(used <= SLOT_GAS_CAP, "header {header}: filled {used} > slot cap");
+            assert!(
+                used <= SLOT_GAS_CAP,
+                "header {header}: filled {used} > slot cap"
+            );
             assert!(cap <= header.min(SLOT_GAS_CAP));
             assert!(executable_gas(header, SLOT_GAS_CAP) <= header);
         }

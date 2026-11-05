@@ -9,8 +9,9 @@ use tks_runtime::RuntimeCall;
 use crate::extrinsic_sign::encode_signed_extrinsic;
 use crate::genesis_util::multisig_account_id;
 use crate::multisig_storage::{list_pending_call_hashes, parse_account_id20};
-use pallet_multisig::Timepoint;
 use crate::shard_setup_cmd::{fetch_account_nonce, fetch_genesis_hash, rpc_call};
+use pallet_multisig::Timepoint;
+use tks_runtime::BlockNumber;
 
 #[derive(Debug, clap::Parser)]
 pub struct MultisigListPendingCmd {
@@ -95,11 +96,7 @@ impl MultisigCancelPendingCmd {
         let max_weight = frame_support::weights::Weight::from_parts(5_000_000_000, 0);
 
         let other_for = |who: AccountId20| -> Vec<AccountId20> {
-            signers
-                .iter()
-                .copied()
-                .filter(|a| *a != who)
-                .collect()
+            signers.iter().copied().filter(|a| *a != who).collect()
         };
 
         for call_hash in call_hashes {
@@ -134,7 +131,7 @@ fn fetch_timepoint(
     rpc_url: &str,
     multisig: AccountId20,
     call_hash: &[u8; 32],
-) -> Result<Timepoint, sc_cli::Error> {
+) -> Result<Timepoint<BlockNumber>, sc_cli::Error> {
     use crate::multisig_storage::fetch_multisig_state;
     let state = fetch_multisig_state(rpc_url, multisig, call_hash)?
         .ok_or_else(|| sc_cli::Error::Input("pending multisig not found for call_hash".into()))?;

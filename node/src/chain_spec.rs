@@ -38,8 +38,8 @@ pub fn get_account_id_from_seed(seed: &str) -> AccountId {
         "Alice" => hex_to_account("0xe04cc55ebee1cbce552f250e85c57b70b2e2625b"),
         "Bob" => hex_to_account("0x25451a4de12dccc2d166922fa938e900fcc4ed24"),
         "Charlie" => hex_to_account("0x5630a480727cd7799073b36472d9b1a6031f840b"),
-        "Dave" => hex_to_account("0x4bb32a4263e369acbb6c020ffa89a41fd9722894"), 
-        "Eve" => hex_to_account("0x362855f7c9c5c9d00a84157cdefe889fea436741"), 
+        "Dave" => hex_to_account("0x4bb32a4263e369acbb6c020ffa89a41fd9722894"),
+        "Eve" => hex_to_account("0x362855f7c9c5c9d00a84157cdefe889fea436741"),
         "Ferdie" => hex_to_account("0x0c8a57c77e50afc224f06caeeca12c46178b37c7"),
         _ => {
             let pubkey = get_from_seed::<ecdsa::Public>(seed);
@@ -88,27 +88,26 @@ pub fn development_config() -> Result<ChainSpec, String> {
         // See network/GENESIS-AND-BRIDGE.md for mainnet allocation guide.
         vec![
             // Team / Foundation (10% = 2B TKS) — 4yr vest, 1yr cliff on mainnet
-            (get_account_id_from_seed("Alice"),   2_000_000_000 * TKS),
+            (get_account_id_from_seed("Alice"), 2_000_000_000 * TKS),
             // Public Sale Reserve (50% = 10B TKS) — tiered presale rounds
-            (get_account_id_from_seed("Bob"),    10_000_000_000 * TKS),
+            (get_account_id_from_seed("Bob"), 10_000_000_000 * TKS),
             // Bridge Reserve (15% = 3B TKS) — ETH/BSC migration pool
             (get_account_id_from_seed("Charlie"), 3_000_000_000 * TKS),
             // Ecosystem Fund (10% = 2B TKS) — grants, integrations
-            (get_account_id_from_seed("Dave"),    2_000_000_000 * TKS),
+            (get_account_id_from_seed("Dave"), 2_000_000_000 * TKS),
             // Treasury on-chain (5% = 1B TKS) — governance controlled
-            (get_account_id_from_seed("Eve"),     1_000_000_000 * TKS),
+            (get_account_id_from_seed("Eve"), 1_000_000_000 * TKS),
             // Airdrop + Community + Liquidity (10% = 2B TKS)
-            (get_account_id_from_seed("Ferdie"),  2_000_000_000 * TKS),
+            (get_account_id_from_seed("Ferdie"), 2_000_000_000 * TKS),
         ],
         // ── Total: 20,000,000,000 TKS (20 Billion) ────────────────────
         vec![
             (b"alice".to_vec(), get_account_id_from_seed("Alice")),
-            (b"bob".to_vec(),   get_account_id_from_seed("Bob")),
+            (b"bob".to_vec(), get_account_id_from_seed("Bob")),
         ],
     ))
     .build())
 }
-
 
 /// Local testnet config (two validators for multi-node testing).
 ///
@@ -141,7 +140,10 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
             (get_account_id_from_seed("Alice"), 400_000_000 * TKS),
             (get_account_id_from_seed("Bob"), 300_000_000 * TKS),
             (get_account_id_from_seed("Charlie"), 100_000_000 * TKS),
-            (hex_to_account("0xEEb99F126Eb8C665675B8bd9652a969969696969"), 100_000_000 * TKS),
+            (
+                hex_to_account("0xEEb99F126Eb8C665675B8bd9652a969969696969"),
+                100_000_000 * TKS,
+            ),
         ],
         // Pre-registered usernames
         vec![
@@ -274,7 +276,7 @@ fn testnet_genesis(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sp_core::{ecdsa, Pair, KeccakHasher, Hasher};
+    use sp_core::{ecdsa, Hasher, KeccakHasher, Pair};
 
     #[test]
     fn calculate_eth_addresses() {
@@ -283,7 +285,9 @@ mod tests {
             let pair = ecdsa::Pair::from_string(&format!("//{}", seed), None).unwrap();
             let pubkey = pair.public();
             // Ethereum addresses are the last 20 bytes of the Keccak-256 hash of the uncompressed public key (minus the 0x04 prefix)
-            let uncompressed = libsecp256k1::PublicKey::parse_slice(&pubkey.0, None).unwrap().serialize();
+            let uncompressed = libsecp256k1::PublicKey::parse_slice(&pubkey.0, None)
+                .unwrap()
+                .serialize();
             let hash = KeccakHasher::hash(&uncompressed[1..65]);
             let address = &hash[12..];
             println!("{}: 0x{}", seed, hex::encode(address));

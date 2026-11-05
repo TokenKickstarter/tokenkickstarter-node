@@ -114,8 +114,8 @@ where
     CIDP: sp_inherents::CreateInherentDataProviders<B, ()> + Send + 'static,
 {
     use fc_rpc::{
-        Eth, EthApiServer, EthDevSigner, EthFilter, EthFilterApiServer,
-        EthPubSub, EthPubSubApiServer, EthSigner, Net, NetApiServer, Web3, Web3ApiServer,
+        Eth, EthApiServer, EthDevSigner, EthFilter, EthFilterApiServer, EthPubSub,
+        EthPubSubApiServer, EthSigner, Net, NetApiServer, Web3, Web3ApiServer,
     };
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use substrate_frame_rpc_system::{System, SystemApiServer};
@@ -124,11 +124,7 @@ where
 
     let mut io = RpcModule::new(());
 
-    let FullDeps {
-        client,
-        pool,
-        eth,
-    } = deps;
+    let FullDeps { client, pool, eth } = deps;
 
     // System + TransactionPayment (Substrate standard)
     io.merge(System::new(client.clone(), pool.clone()).into_rpc())?;
@@ -212,9 +208,7 @@ where
         .into_rpc(),
     )?;
 
-    io.merge(
-        Net::new(client.clone(), network, true).into_rpc(),
-    )?;
+    io.merge(Net::new(client.clone(), network, true).into_rpc())?;
 
     io.merge(HyperswarmRpc::<C, B, BE>::new(client.clone()).into_rpc())?;
 

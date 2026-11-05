@@ -1,13 +1,13 @@
 //! Keep embedded shard executor epoch aligned with on-chain `ShardRegistry::CurrentEpoch`.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use codec::Decode;
 use futures::FutureExt;
-use sp_core::traits::SpawnNamed;
 use sc_client_api::StorageProvider;
 use sp_blockchain::HeaderBackend;
+use sp_core::traits::SpawnNamed;
 use sp_core::twox_128;
 use sp_storage::StorageKey;
 

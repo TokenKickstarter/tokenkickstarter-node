@@ -3,13 +3,20 @@
 use codec::{Decode, Encode};
 use fp_account::AccountId20;
 use pallet_multisig::Timepoint;
-use sp_core::hashing::{blake2_128_concat, twox_128};
+use sp_core::hashing::{blake2_128, twox_128};
+use tks_runtime::BlockNumber;
 
 use crate::shard_setup_cmd::rpc_call;
 
+fn blake2_128_concat(data: &[u8]) -> Vec<u8> {
+    let mut out = blake2_128(data).to_vec();
+    out.extend_from_slice(data);
+    out
+}
+
 #[derive(Debug, Decode)]
 pub struct MultisigState {
-    pub when: Timepoint,
+    pub when: Timepoint<BlockNumber>,
     pub deposit: u128,
     pub depositor: AccountId20,
     pub approvals: Vec<AccountId20>,
@@ -57,11 +64,7 @@ pub fn list_pending_call_hashes(
 ) -> Result<Vec<[u8; 32]>, sc_cli::Error> {
     let prefix = multisigs_prefix_key(multisig);
     let hex_prefix = format!("0x{}", hex::encode(prefix));
-    let keys = rpc_call(
-        rpc_url,
-        "state_getKeys",
-        serde_json::json!([hex_prefix]),
-    )?;
+    let keys = rpc_call(rpc_url, "state_getKeys", serde_json::json!([hex_prefix]))?;
     let arr = keys
         .as_array()
         .ok_or_else(|| sc_cli::Error::Input("state_getKeys: expected array".into()))?;
@@ -89,7 +92,7 @@ pub fn wait_for_multisig_timepoint(
     multisig: AccountId20,
     call_hash: &[u8; 32],
     max_wait_secs: u64,
-) -> Result<Timepoint, sc_cli::Error> {
+) -> Result<Timepoint<BlockNumber>, sc_cli::Error> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(max_wait_secs);
     loop {
         if let Some(state) = fetch_multisig_state(rpc_url, multisig, call_hash)? {
