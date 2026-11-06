@@ -404,18 +404,8 @@ async fn handle_request(
                     if recipient_id.is_empty() {
                         serde_json::to_vec(&serde_json::json!({"error": "missing recipient_id"}))
                             .unwrap_or_default()
-                    } else if let Some(ref hs) = hyperswarm {
-                        let _ = hs.pull_for_recipient(&recipient_id).await;
-                        let chunks = store.read().await.fetch(&recipient_id);
-                        if !chunks.is_empty() {
-                            info!(
-                                "📬 Fetch (HTTP): {} chunk(s) for {}",
-                                chunks.len(),
-                                recipient_id
-                            );
-                        }
-                        serde_json::to_vec(&RelayResponse::Chunks(chunks)).unwrap_or_default()
                     } else {
+                        // Read local mailbox first — do not block HTTP on libp2p chunk pull.
                         let chunks = store.read().await.fetch(&recipient_id);
                         if !chunks.is_empty() {
                             info!(
@@ -423,8 +413,25 @@ async fn handle_request(
                                 chunks.len(),
                                 recipient_id
                             );
+                            serde_json::to_vec(&RelayResponse::Chunks(chunks)).unwrap_or_default()
+                        } else if let Some(ref hs) = hyperswarm {
+                            let _ = tokio::time::timeout(
+                                std::time::Duration::from_secs(2),
+                                hs.pull_for_recipient(&recipient_id),
+                            )
+                            .await;
+                            let chunks = store.read().await.fetch(&recipient_id);
+                            if !chunks.is_empty() {
+                                info!(
+                                    "📬 Fetch (HTTP+pulled): {} chunk(s) for {}",
+                                    chunks.len(),
+                                    recipient_id
+                                );
+                            }
+                            serde_json::to_vec(&RelayResponse::Chunks(chunks)).unwrap_or_default()
+                        } else {
+                            serde_json::to_vec(&RelayResponse::Chunks(chunks)).unwrap_or_default()
                         }
-                        serde_json::to_vec(&RelayResponse::Chunks(chunks)).unwrap_or_default()
                     }
                 }
                 Err(e) => serde_json::to_vec(&serde_json::json!({"error": e.to_string()})).unwrap_or_default(),

@@ -4,6 +4,20 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.25
+
+**Cipher relay `/fetch` hotfix** — HTTP mailbox no longer blocks on libp2p chunk pull when messages are already stored locally.
+
+### Fixes
+
+- **`POST /fetch`:** return local chunks immediately; optional 2s HyperSwarm pull only when inbox is empty (fixes hung fetch / empty recv on CLI).
+
+### Deploy
+
+1. Tag **v0.1.25**, upgrade VPS: `VERSION=v0.1.25 bash network/scripts/vps-docker-github-release.sh`.
+
+---
+
 ## v0.1.24
 
 **Cipher signal mesh + embedded WS** — one binary for relay, discovery, and instant push (no Node sidecar required).
