@@ -8,24 +8,24 @@ pub struct Cli {
     #[clap(flatten)]
     pub run: RunCmd,
 
-    /// Disable embedded Cipher relay, shard executor, and HyperSwarm (validator-only nodes).
-    #[arg(long, default_value_t = false)]
+    /// Turn off the whole Cipher stack (relay, signal, shard, HyperSwarm). Everything else is **on by default**.
+    #[arg(long, default_value_t = false, env = "CIPHER_DISABLE_STACK")]
     pub disable_cipher_stack: bool,
 
-    /// Whether to enable the embedded Cipher Storage Relay
+    /// Embedded Cipher mailbox relay (HTTP `/store`, `/fetch`, `/discovery`, …).
     #[arg(long, default_value_t = true)]
     pub enable_cipher_relay: bool,
 
-    /// Port for the embedded Cipher Storage Relay HTTP API
-    #[arg(long, default_value_t = 4002)]
+    /// Relay HTTP port (default 4002).
+    #[arg(long, default_value_t = 4002, env = "CIPHER_RELAY_PORT")]
     pub cipher_relay_port: u16,
 
-    /// Run embedded Cipher shard executor (batch → DA → anchor payloads).
+    /// Embedded shard executor (batch → DA → anchor payloads).
     #[arg(long, default_value_t = true)]
     pub enable_cipher_shard_executor: bool,
 
-    /// HTTP ingest port for the embedded shard executor.
-    #[arg(long, default_value_t = 4010)]
+    /// Shard executor HTTP ingest port (default 4010).
+    #[arg(long, default_value_t = 4010, env = "CIPHER_SHARD_PORT")]
     pub cipher_shard_port: u16,
 
     /// Shard id this node serves (must match on-chain assignment).
@@ -53,30 +53,42 @@ pub struct Cli {
     #[arg(long, default_value_t = cipher_hybrid::DEFAULT_LOGICAL_SHARD_COUNT)]
     pub cipher_hybrid_shard_count: u16,
 
-    /// HyperSwarm libp2p mesh for multi-relay discovery (port 4001).
+    /// HyperSwarm libp2p mesh for multi-relay discovery (default port 4001).
     #[arg(long, default_value_t = true)]
     pub enable_cipher_hyperswarm: bool,
 
-    #[arg(long, default_value_t = 4001)]
+    #[arg(long, default_value_t = 4001, env = "CIPHER_HYPERSWARM_PORT")]
     pub cipher_hyperswarm_port: u16,
 
-    /// Public HTTPS base advertised to peers (GET /discovery).
-    #[arg(long)]
+    /// Public HTTPS relay base for gossip + `/discovery` (set this or `CIPHER_PUBLIC_RELAY_URL`).
+    #[arg(long, env = "CIPHER_PUBLIC_RELAY_URL")]
     pub cipher_public_relay_url: Option<String>,
 
-    /// Public WSS URL for instant push (e.g. wss://my-node.example/ws). Defaults to relay URL + `/ws`.
-    #[arg(long)]
+    /// Public WSS for clients (optional; derived from relay URL + `/ws` when unset).
+    #[arg(long, env = "CIPHER_PUBLIC_SIGNAL_WS")]
     pub cipher_public_signal_ws: Option<String>,
 
-    /// Local HTTP URL for relay→signal push after store (default http://127.0.0.1:4003/internal/push).
-    #[arg(long)]
+    /// External signal push URL (only if `--cipher-embedded-signal false`).
+    #[arg(long, env = "CIPHER_SIGNAL_PUSH_URL")]
     pub cipher_signal_push_url: Option<String>,
 
+    /// Embedded WebSocket signal in the node (default **on**; replaces Node sidecar).
+    #[arg(long, default_value_t = true)]
+    pub cipher_embedded_signal: bool,
+
+    /// Embedded signal port — `/ws` + `/internal/push` (default 4003).
+    #[arg(long, default_value_t = 4003, env = "CIPHER_SIGNAL_PORT")]
+    pub cipher_signal_port: u16,
+
+    /// Shared secret for federated `POST /signal/push` between validator relays.
+    #[arg(long, env = "CIPHER_FEDERATED_PUSH_KEY")]
+    pub cipher_federated_push_key: Option<String>,
+
     /// Comma-separated libp2p bootmultiaddrs for HyperSwarm.
-    #[arg(long, value_delimiter = ',')]
+    #[arg(long, value_delimiter = ',', env = "CIPHER_HYPERSWARM_BOOTNODES")]
     pub cipher_hyperswarm_bootnodes: Vec<String>,
 
-    #[arg(long, default_value = "asia")]
+    #[arg(long, default_value = "asia", env = "CIPHER_HYPERSWARM_REGION")]
     pub cipher_hyperswarm_region: String,
 
     /// Submit `HyperSwarmAnchor.post_anchor` when anchor JSON appears (requires seed file).
@@ -84,7 +96,7 @@ pub struct Cli {
     pub cipher_auto_post_anchor: bool,
 
     /// File containing one line: Substrate/ecdsa secret URI for the shard validator AccountId20.
-    #[arg(long)]
+    #[arg(long, env = "CIPHER_ANCHOR_SEED_FILE")]
     pub cipher_anchor_seed_file: Option<std::path::PathBuf>,
 
     /// Enable Ethereum dev signer on RPC (`EthDevSigner`). Off by default — production must not expose dev keys.

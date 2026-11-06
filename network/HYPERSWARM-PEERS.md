@@ -7,6 +7,7 @@
 | **L1 chain** | Substrate P2P `:30333` | Any synced `tks-chain-node` |
 | **Trust** | `ShardRegistry::register_validator` + `post_anchor` | On-chain endpoint list |
 | **Cipher relays** | HTTP `:4002` + libp2p gossip `:4001` | `/discovery` + mesh fanout |
+| **Signal WSS (discovery)** | Gossip via `RelayAnnouncement.signal_ws` | See [SIGNAL-MESH.public.md](./SIGNAL-MESH.public.md) |
 
 ## Run a public relay node
 

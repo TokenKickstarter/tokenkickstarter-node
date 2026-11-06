@@ -26,6 +26,12 @@ pub struct RelayAnnouncement {
     pub libp2p_addrs: Vec<String>,
     pub region: Option<String>,
     pub ts: u64,
+    /// Federated WebSocket push front door (`wss://host/ws`) when co-located signal server exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal_ws: Option<String>,
+    /// Federated HTTP push ingress (`https://host/signal/push`) for cross-relay instant delivery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub federated_push: Option<String>,
 }
 
 /// Gossip only metadata — **no plaintext, no keys** (torrent magnet-style).
@@ -127,6 +133,8 @@ impl HyperSwarmHandle {
 pub struct HyperSwarmConfig {
     pub listen_port: u16,
     pub public_http_base: Option<String>,
+    /// Advertised in relay gossip so peers learn WSS without guessing `/ws` on HTTP base.
+    pub public_signal_ws: Option<String>,
     pub region: Option<String>,
     pub bootnodes: Vec<Multiaddr>,
 }
@@ -208,6 +216,7 @@ pub async fn run_hyperswarm(
 
     let dir = directory.clone();
     let http = cfg.public_http_base.clone();
+    let signal_ws = cfg.public_signal_ws.clone();
     let region = cfg.region.clone();
     let relay_topic = IdentTopic::new(GOSSIP_RELAY_TOPIC);
     let chunk_topic = IdentTopic::new(GOSSIP_CHUNK_TOPIC);
@@ -338,6 +347,10 @@ pub async fn run_hyperswarm(
                             libp2p_addrs: vec![format!("/p2p/{}", dir.local_peer_id)],
                             region: region.clone(),
                             ts: chrono::Utc::now().timestamp() as u64,
+                            signal_ws: signal_ws
+                                .clone()
+                                .or_else(|| crate::discovery::http_base_to_signal_ws(base)),
+                            federated_push: crate::discovery::federated_signal_push_url(base),
                         };
                         if let Ok(bytes) = serde_json::to_vec(&ann) {
                             let _ = swarm.behaviour_mut().gossipsub.publish(relay_topic.clone(), bytes);

@@ -15,6 +15,9 @@ pub struct RelayEndpoint {
     /// WebSocket push endpoint for online recipients (`wss://host/ws?addr=…`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signal_ws: Option<String>,
+    /// Federated instant push ingress (`POST …/signal/push`) on the relay host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub federated_push: Option<String>,
     pub libp2p_addrs: Vec<String>,
     pub region: Option<String>,
     pub priority: u8,
@@ -47,7 +50,15 @@ pub struct DiscoveryResponse {
     pub chain_rpc: Option<String>,
 }
 
-/// Derive a federated signal WebSocket URL from an HTTP relay base (same-host `/ws` nginx pattern).
+/// Federated HTTP push ingress on a relay host (Phase 2 signal mesh).
+pub fn federated_signal_push_url(http: &str) -> Option<String> {
+    let base = http.trim().trim_end_matches('/');
+    if base.is_empty() || !endpoint_is_mailbox_http(base) {
+        return None;
+    }
+    Some(format!("{base}/signal/push"))
+}
+
 pub fn http_base_to_signal_ws(http: &str) -> Option<String> {
     let http = http.trim().trim_end_matches('/');
     if http.is_empty() {
@@ -79,8 +90,9 @@ pub async fn build_discovery(
         relays.push(RelayEndpoint {
             source: "self".into(),
             peer_id: self_peer_id.clone(),
-            http_base: http,
+            http_base: http.clone(),
             signal_ws,
+            federated_push: federated_signal_push_url(&http),
             libp2p_addrs: vec![],
             region: None,
             priority: 255,
@@ -97,6 +109,7 @@ pub async fn build_discovery(
                     peer_id: None,
                     http_base: http.clone(),
                     signal_ws: http_base_to_signal_ws(&http),
+                    federated_push: federated_signal_push_url(&http),
                     libp2p_addrs: vec![v.endpoint.clone()],
                     region: Some(v.region),
                     priority: 200,
@@ -112,7 +125,14 @@ pub async fn build_discovery(
                 source: "gossip".into(),
                 peer_id: Some(ann.peer_id),
                 http_base: ann.http_base.clone(),
-                signal_ws: http_base_to_signal_ws(&ann.http_base),
+                signal_ws: ann
+                    .signal_ws
+                    .clone()
+                    .or_else(|| http_base_to_signal_ws(&ann.http_base)),
+                federated_push: ann
+                    .federated_push
+                    .clone()
+                    .or_else(|| federated_signal_push_url(&ann.http_base)),
                 libp2p_addrs: ann.libp2p_addrs,
                 region: ann.region,
                 priority: 180,

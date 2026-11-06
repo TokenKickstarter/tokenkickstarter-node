@@ -4,6 +4,26 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.24
+
+**Cipher signal mesh + embedded WS** — one binary for relay, discovery, and instant push (no Node sidecar required).
+
+### Features
+
+- **Embedded signal server** (`cipher-relay/src/signal.rs`): WebSocket `/ws?addr=…`, localhost `/internal/push`, default port **4003** (`--cipher-embedded-signal`, on by default).
+- **Federated push (Phase 2):** `POST /signal/push` on relay; mesh fanout to peer validators after `/store` (`CIPHER_FEDERATED_PUSH_KEY` / `--cipher-federated-push-key`).
+- **Discovery:** gossip + `GET /discovery` advertise **`federated_push`** and **`signal_ws`** per relay.
+- **Ops:** Cipher stack **on by default**; `--disable-cipher-stack` to turn off; public URL via `CIPHER_PUBLIC_RELAY_URL` (see [`network/SIGNAL-MESH.public.md`](network/SIGNAL-MESH.public.md)).
+
+### Deploy
+
+1. Tag **v0.1.24**, wait for GitHub Release assets.
+2. VPS: `VERSION=v0.1.24 bash network/scripts/vps-docker-github-release.sh`.
+3. Nginx: `/signal/push` → relay `:4002`, `/ws` → `:4003` (embedded signal in node).
+4. Set **`CIPHER_PUBLIC_RELAY_URL`** (+ shared **`CIPHER_FEDERATED_PUSH_KEY`** across validators for push mesh).
+
+---
+
 ## v0.1.23
 
 **Cipher discovery fix** — clients no longer treat shard ingest hosts as message relays.

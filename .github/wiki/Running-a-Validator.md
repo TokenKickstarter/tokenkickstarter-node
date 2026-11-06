@@ -38,6 +38,19 @@ Or use the convenience script:
 
 Wait for the node to fully sync before proceeding.
 
+### Cipher messaging (default on)
+
+No extra flags are required: the node starts the **relay** (4002), **HyperSwarm** (4001), **embedded WebSocket signal** (4003), and **shard executor** (4010) automatically.
+
+For federation, set your public relay URL once (environment is easiest for Docker):
+
+```bash
+export CIPHER_PUBLIC_RELAY_URL=https://relay.your-domain.com
+export CIPHER_FEDERATED_PUSH_KEY='shared-among-validators'   # optional, for instant push mesh
+```
+
+To run a **consensus-only** validator with no Cipher stack: add `--disable-cipher-stack`.
+
 ---
 
 ## Step 2: Generate Session Keys

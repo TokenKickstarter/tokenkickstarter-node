@@ -10,6 +10,7 @@
 //! - POST /fetch    — download chunks addressed to you
 //! - POST /ack      — confirm receipt (deletes chunks)
 //! - POST /register — register EVM address → presence
+//! - POST /signal/push — federated instant push (peer relays → local signal sidecar)
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -19,6 +20,7 @@ use bytes::Bytes;
 use cipher_hybrid::HybridController;
 use http_body_util::{BodyExt, Full};
 use hyper::service::service_fn;
+use hyper::header::HeaderMap;
 use hyper::{body::Incoming, Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use log::{debug, info, warn};
@@ -27,6 +29,7 @@ use tokio::sync::{Notify, RwLock};
 pub mod build_info;
 pub mod discovery;
 pub mod hyperswarm;
+mod signal;
 
 pub use build_info::{ChainBuildInfo, SharedChainBuildInfo};
 
@@ -203,6 +206,11 @@ pub struct RelayServerConfig {
     pub hyperswarm_region: Option<String>,
     /// Embedded node version + chain identity (GET /version).
     pub build_info: Option<SharedChainBuildInfo>,
+    /// Shared secret for `POST /signal/push` from peer relays (`X-TKS-Federated-Push-Key`).
+    pub federated_push_key: Option<String>,
+    /// Embedded WebSocket signal server (replaces Node `vps-signal-server`).
+    pub enable_embedded_signal: bool,
+    pub signal_port: u16,
 }
 
 // ─────────────────────────────────────────────────────────
@@ -219,11 +227,22 @@ struct RelayHttpContext {
     chain_rpc_url: Option<String>,
     hyperswarm: Option<Arc<hyperswarm::HyperSwarmHandle>>,
     build_info: Option<SharedChainBuildInfo>,
+    federated_push_key: Option<String>,
+    signal_hub: Option<Arc<signal::SignalHub>>,
+}
+
+#[derive(Clone)]
+struct MeshPushContext {
+    self_http: Option<String>,
+    chain_rpc_url: Option<String>,
+    federated_push_key: Option<String>,
+    hyperswarm: Option<Arc<hyperswarm::HyperSwarmHandle>>,
 }
 
 async fn handle_request(
     req: Request<Incoming>,
     ctx: RelayHttpContext,
+    remote_addr: SocketAddr,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let RelayHttpContext {
         store,
@@ -235,7 +254,16 @@ async fn handle_request(
         chain_rpc_url,
         hyperswarm,
         build_info,
+        federated_push_key,
+        signal_hub,
     } = ctx;
+
+    let mesh_push = MeshPushContext {
+        self_http: public_relay_url.clone(),
+        chain_rpc_url: chain_rpc_url.clone(),
+        federated_push_key: federated_push_key.clone(),
+        hyperswarm: hyperswarm.clone(),
+    };
     // CORS headers for all responses
     let cors_headers = |mut resp: Response<Full<Bytes>>| -> Response<Full<Bytes>> {
         resp.headers_mut()
@@ -246,7 +274,7 @@ async fn handle_request(
         );
         resp.headers_mut().insert(
             "Access-Control-Allow-Headers",
-            "Content-Type".parse().unwrap(),
+            "Content-Type, X-TKS-Federated-Push-Key, X-TKS-Relay-Peer".parse().unwrap(),
         );
         resp
     };
@@ -269,6 +297,7 @@ async fn handle_request(
         return Ok(cors_headers(resp));
     }
 
+    let auth_headers = req.headers().clone();
     let body_bytes = if req.method() == Method::POST {
         req.collect().await?.to_bytes()
     } else {
@@ -277,6 +306,38 @@ async fn handle_request(
 
     // Route by path
     let response = match path.as_str() {
+        "/signal/push" => {
+            if !authorize_federated_push(
+                remote_addr,
+                &auth_headers,
+                federated_push_key.as_ref(),
+            ) {
+                return Ok(cors_headers(
+                    Response::builder()
+                        .status(StatusCode::FORBIDDEN)
+                        .body(Full::new(Bytes::from(
+                            r#"{"error":"federated push forbidden"}"#,
+                        )))
+                        .unwrap(),
+                ));
+            }
+            match parse_signal_push_body(&body_bytes) {
+                Ok((recipient, message_id, ciphertext)) => {
+                    deliver_signal_push(
+                        signal_hub.as_deref(),
+                        signal_push_url.as_deref(),
+                        &recipient,
+                        &message_id,
+                        &ciphertext,
+                    )
+                    .await;
+                    serde_json::to_vec(&serde_json::json!({"ok": true}))
+                        .unwrap_or_default()
+                }
+                Err(e) => serde_json::to_vec(&serde_json::json!({"error": e}))
+                    .unwrap_or_default(),
+            }
+        }
         "/relay" => {
             // Generic bincode endpoint (used by client-core direct.rs)
             match bincode::deserialize::<RelayRequest>(&body_bytes) {
@@ -288,6 +349,8 @@ async fn handle_request(
                         hybrid.clone(),
                         hyperswarm.clone(),
                         signal_push_url.clone(),
+                        mesh_push.clone(),
+                        signal_hub.clone(),
                     )
                     .await
                 }
@@ -310,8 +373,10 @@ async fn handle_request(
                             hybrid.clone(),
                             hyperswarm.clone(),
                             signal_push_url.clone(),
-                        )
-                        .await;
+                        mesh_push.clone(),
+                        signal_hub.clone(),
+                    )
+                    .await;
                     if bincode::deserialize::<RelayResponse>(&resp_bytes)
                         .map(|r| matches!(r, RelayResponse::Stored { .. }))
                         .unwrap_or(false)
@@ -382,8 +447,10 @@ async fn handle_request(
                             hybrid.clone(),
                             hyperswarm.clone(),
                             signal_push_url.clone(),
-                        )
-                        .await;
+                        mesh_push.clone(),
+                        signal_hub.clone(),
+                    )
+                    .await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -405,8 +472,10 @@ async fn handle_request(
                             hybrid.clone(),
                             hyperswarm.clone(),
                             signal_push_url.clone(),
-                        )
-                        .await;
+                        mesh_push.clone(),
+                        signal_hub.clone(),
+                    )
+                    .await;
                     match bincode::deserialize::<RelayResponse>(&resp_bytes) {
                         Ok(resp) => serde_json::to_vec(&resp).unwrap_or_default(),
                         Err(_) => resp_bytes,
@@ -459,7 +528,7 @@ async fn handle_request(
         _ => {
             serde_json::to_vec(&serde_json::json!({
                 "error": "Unknown endpoint",
-                "endpoints": ["/relay", "/store", "/fetch", "/ack", "/register", "/stats", "/hybrid/stats", "/discovery", "/version"]
+                "endpoints": ["/relay", "/store", "/fetch", "/ack", "/register", "/signal/push", "/stats", "/hybrid/stats", "/discovery", "/version"]
             })).unwrap_or_default()
         }
     };
@@ -503,6 +572,148 @@ fn mesh_replicate(
             let _ = client.post(url).json(&chunk).send().await;
         }
     });
+}
+
+/// After local store, ask peer relays to run their co-located signal push (Phase 2).
+fn mesh_signal_push(
+    recipient_id: String,
+    message_id: String,
+    ciphertext: Vec<u8>,
+    ctx: MeshPushContext,
+) {
+    tokio::spawn(async move {
+        let peer_id = ctx
+            .hyperswarm
+            .as_ref()
+            .map(|h| h.directory.local_peer_id().to_string());
+        let disc = discovery::build_discovery(
+            ctx.self_http.clone(),
+            None,
+            peer_id.clone(),
+            ctx.chain_rpc_url.clone(),
+            ctx.hyperswarm.as_ref().map(|h| h.directory.clone()),
+            None,
+        )
+        .await;
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD.encode(&ciphertext);
+        let body = serde_json::json!({
+            "to": recipient_id,
+            "type": "message",
+            "message_id": message_id,
+            "data": data,
+        });
+        let client = reqwest::Client::new();
+        for relay in disc.relays.iter().take(8) {
+            if Some(relay.http_base.as_str()) == ctx.self_http.as_deref() {
+                continue;
+            }
+            let Some(push_url) = relay
+                .federated_push
+                .clone()
+                .or_else(|| discovery::federated_signal_push_url(&relay.http_base))
+            else {
+                continue;
+            };
+            let mut req = client
+                .post(push_url)
+                .json(&body)
+                .timeout(std::time::Duration::from_secs(2));
+            if let Some(ref key) = ctx.federated_push_key {
+                req = req.header("X-TKS-Federated-Push-Key", key.as_str());
+            }
+            if let Some(ref pid) = peer_id {
+                req = req.header("X-TKS-Relay-Peer", pid.as_str());
+            }
+            let _ = req.send().await;
+        }
+    });
+}
+
+fn authorize_federated_push(
+    remote: SocketAddr,
+    headers: &HeaderMap,
+    federated_key: Option<&String>,
+) -> bool {
+    if remote.ip().is_loopback() {
+        return true;
+    }
+    if let Some(expected) = federated_key.filter(|k| !k.is_empty()) {
+        return header_value_eq(headers, "X-TKS-Federated-Push-Key", expected);
+    }
+    false
+}
+
+fn header_value_eq(headers: &HeaderMap, name: &str, expected: &str) -> bool {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .map(|got| got == expected)
+        .unwrap_or(false)
+}
+
+fn parse_signal_push_body(body: &[u8]) -> Result<(String, String, Vec<u8>), String> {
+    let val: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("invalid JSON: {e}"))?;
+    let recipient = val
+        .get("to")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if recipient.is_empty() {
+        return Err("missing to".into());
+    }
+    let message_id = val
+        .get("message_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if message_id.is_empty() {
+        return Err("missing message_id".into());
+    }
+    if let Some(b64) = val.get("data").and_then(|v| v.as_str()) {
+        use base64::Engine;
+        let ct = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| format!("invalid base64 data: {e}"))?;
+        return Ok((recipient, message_id, ct));
+    }
+    if let Some(arr) = val.get("ciphertext").and_then(|v| v.as_array()) {
+        let ct: Option<Vec<u8>> = arr
+            .iter()
+            .map(|v| v.as_u64().map(|n| n as u8))
+            .collect();
+        return ct
+            .map(|c| (recipient, message_id, c))
+            .ok_or_else(|| "invalid ciphertext array".into());
+    }
+    Err("missing data (base64) or ciphertext".into())
+}
+
+async fn deliver_signal_push(
+    hub: Option<&signal::SignalHub>,
+    push_url: Option<&str>,
+    recipient_id: &str,
+    message_id: &str,
+    ciphertext: &[u8],
+) {
+    use base64::Engine;
+    let data = base64::engine::general_purpose::STANDARD.encode(ciphertext);
+    if let Some(h) = hub {
+        let payload = serde_json::json!({
+            "type": "message",
+            "message_id": message_id,
+            "data": data,
+        });
+        let outcome = h.push_json(recipient_id, payload).await;
+        if outcome.delivered {
+            log::debug!("⚡ WS push delivered for {}", recipient_id);
+        }
+        return;
+    }
+    if let Some(url) = push_url {
+        forward_signal_push(url, recipient_id, message_id, ciphertext).await;
+    }
 }
 
 /// Notify co-located signal server so online recipients get sub-100ms WS push.
@@ -571,6 +782,8 @@ async fn handle_relay_request(
     hybrid: Option<Arc<HybridController>>,
     hyperswarm: Option<Arc<hyperswarm::HyperSwarmHandle>>,
     signal_push_url: Option<String>,
+    mesh_push: MeshPushContext,
+    signal_hub: Option<Arc<signal::SignalHub>>,
 ) -> Vec<u8> {
     let response = match req {
         RelayRequest::Store(chunk) => {
@@ -592,13 +805,28 @@ async fn handle_relay_request(
                             forward_shard_ingest(&url, &c, &mid).await;
                         });
                     }
-                    if let Some(push_url) = signal_push_url {
+                    {
+                        let hub = signal_hub.clone();
+                        let push_url = signal_push_url.clone();
                         let mid = msg_id.clone();
                         let rid = recipient.clone();
                         let ct = chunk.ciphertext.clone();
                         tokio::spawn(async move {
-                            forward_signal_push(&push_url, &rid, &mid, &ct).await;
+                            deliver_signal_push(
+                                hub.as_deref(),
+                                push_url.as_deref(),
+                                &rid,
+                                &mid,
+                                &ct,
+                            )
+                            .await;
                         });
+                    }
+                    {
+                        let mid = msg_id.clone();
+                        let rid = recipient.clone();
+                        let ct = chunk.ciphertext.clone();
+                        mesh_signal_push(rid, mid, ct, mesh_push);
                     }
                     drop(s);
                     if let Some(ref hs) = hyperswarm {
@@ -716,6 +944,11 @@ pub async fn run_relay_server(port: u16) -> Result<(), Box<dyn std::error::Error
         hyperswarm_bootnodes: vec![],
         hyperswarm_region: None,
         build_info: None,
+        federated_push_key: std::env::var("CIPHER_FEDERATED_PUSH_KEY")
+            .ok()
+            .filter(|s| !s.is_empty()),
+        enable_embedded_signal: true,
+        signal_port: 4003,
     })
     .await
 }
@@ -735,6 +968,21 @@ pub async fn run_relay_server_with(
                 .as_ref()
                 .and_then(|u| discovery::http_base_to_signal_ws(u))
         });
+    let enable_embedded_signal = config.enable_embedded_signal;
+    let signal_port = config.signal_port;
+    let signal_hub = if enable_embedded_signal {
+        let hub = signal::SignalHub::new();
+        let hub_run = hub.clone();
+        tokio::spawn(async move {
+            if let Err(e) = signal::run_signal_server(signal_port, hub_run).await {
+                warn!("Embedded signal server exited: {e}");
+            }
+        });
+        Some(hub)
+    } else {
+        None
+    };
+
     let signal_push_url = config
         .signal_push_url
         .clone()
@@ -743,9 +991,23 @@ pub async fn run_relay_server_with(
                 .ok()
                 .filter(|s| !s.is_empty())
         })
-        .or_else(|| Some("http://127.0.0.1:4003/internal/push".into()));
+        .or_else(|| {
+            if enable_embedded_signal {
+                Some(format!("http://127.0.0.1:{signal_port}/internal/push"))
+            } else {
+                None
+            }
+        });
     let chain_rpc_url = config.chain_rpc_url.clone();
     let build_info = config.build_info.clone();
+    let federated_push_key = config
+        .federated_push_key
+        .clone()
+        .or_else(|| {
+            std::env::var("CIPHER_FEDERATED_PUSH_KEY")
+                .ok()
+                .filter(|s| !s.is_empty())
+        });
 
     info!("🚀 Cipher Storage Swarm Relay v0.1.5 (HyperSwarm chunk pull)");
     info!("📋 Blueprint §3.5: Encrypted chunk storage with TTL auto-delete");
@@ -763,6 +1025,7 @@ pub async fn run_relay_server_with(
             hyperswarm::HyperSwarmConfig {
                 listen_port: config.hyperswarm_port,
                 public_http_base: public_relay_url.clone(),
+                public_signal_ws: public_signal_ws.clone(),
                 region: config.hyperswarm_region.clone(),
                 bootnodes: bootnodes.unwrap_or_default(),
             },
@@ -798,7 +1061,7 @@ pub async fn run_relay_server_with(
     let addr: SocketAddr = format!("0.0.0.0:{}", port).parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("🌐 HTTP REST API listening on http://0.0.0.0:{}", port);
-    info!("   Endpoints: /relay /store /fetch /ack /register /stats /discovery");
+    info!("   Endpoints: /relay /store /fetch /ack /register /signal/push /stats /discovery");
     if let Some(ref url) = shard_ingest_url {
         info!("   Shard ingest forward: {url}");
     }
@@ -811,11 +1074,16 @@ pub async fn run_relay_server_with(
             config.hyperswarm_port
         );
     }
-    if let Some(ref push) = signal_push_url {
-        info!("   WS instant push: {push}");
+    if signal_hub.is_some() {
+        info!("   Embedded signal WS: port {signal_port} (/ws, /internal/push)");
+    } else if let Some(ref push) = signal_push_url {
+        info!("   WS instant push (external): {push}");
     }
     if let Some(ref ws) = public_signal_ws {
         info!("   Advertised signal WS: {ws}");
+    }
+    if federated_push_key.is_some() {
+        info!("   Federated signal push: enabled (POST /signal/push + mesh fanout)");
     }
 
     loop {
@@ -830,6 +1098,8 @@ pub async fn run_relay_server_with(
             chain_rpc_url: chain_rpc_url.clone(),
             hyperswarm: hyperswarm.clone(),
             build_info: build_info.clone(),
+            federated_push_key: federated_push_key.clone(),
+            signal_hub: signal_hub.clone(),
         };
         debug!("Connection from {}", remote_addr);
 
@@ -846,8 +1116,11 @@ pub async fn run_relay_server_with(
                     chain_rpc_url: ctx.chain_rpc_url.clone(),
                     hyperswarm: ctx.hyperswarm.clone(),
                     build_info: ctx.build_info.clone(),
+                    federated_push_key: ctx.federated_push_key.clone(),
+                    signal_hub: ctx.signal_hub.clone(),
                 };
-                async move { handle_request(req, ctx).await }
+                let peer = remote_addr;
+                async move { handle_request(req, ctx, peer).await }
             });
 
             if let Err(e) = hyper::server::conn::http1::Builder::new()

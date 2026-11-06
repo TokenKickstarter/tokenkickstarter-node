@@ -220,6 +220,9 @@ pub struct CipherStackConfig {
     pub public_relay_url: Option<String>,
     pub public_signal_ws: Option<String>,
     pub signal_push_url: Option<String>,
+    pub embedded_signal: bool,
+    pub signal_port: u16,
+    pub federated_push_key: Option<String>,
     pub hyperswarm_bootnodes: Vec<String>,
     pub hyperswarm_region: String,
     pub auto_post_anchor: bool,
@@ -673,14 +676,21 @@ pub fn new_full(
                     hyperswarm_port: cipher_relay.hyperswarm_port,
                     public_relay_url: cipher_relay.public_relay_url.clone(),
                     public_signal_ws: cipher_relay.public_signal_ws.clone(),
-                    signal_push_url: cipher_relay
-                        .signal_push_url
-                        .clone()
-                        .or_else(|| Some("http://127.0.0.1:4003/internal/push".into())),
+                    signal_push_url: cipher_relay.signal_push_url.clone(),
+                    enable_embedded_signal: cipher_relay.embedded_signal,
+                    signal_port: cipher_relay.signal_port,
                     chain_rpc_url: Some(chain_rpc_url),
                     hyperswarm_bootnodes: cipher_relay.hyperswarm_bootnodes.clone(),
                     hyperswarm_region: Some(cipher_relay.hyperswarm_region.clone()),
                     build_info: cipher_build_info.clone(),
+                    federated_push_key: cipher_relay
+                        .federated_push_key
+                        .clone()
+                        .or_else(|| {
+                            std::env::var("CIPHER_FEDERATED_PUSH_KEY")
+                                .ok()
+                                .filter(|s| !s.is_empty())
+                        }),
                 };
                 if let Err(e) = cipher_relay::run_relay_server_with(relay_cfg).await {
                     log::error!("Cipher relay exited with error: {e:?}");
