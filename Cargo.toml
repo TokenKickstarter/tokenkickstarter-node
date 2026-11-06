@@ -132,7 +132,7 @@ ethereum = { version = "0.18", default-features = false }
 serde   = { version = "1.0", default-features = false }
 serde_json = { version = "1.0", default-features = false }
 jsonrpsee = { version = "0.24", features = ["server"] }
-clap    = { version = "4.5", features = ["derive"] }
+clap    = { version = "4.5", features = ["derive", "env"] }
 futures = "0.3"
 log     = { version = "0.4", default-features = false }
 

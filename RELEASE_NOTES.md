@@ -15,6 +15,10 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 - **Discovery:** gossip + `GET /discovery` advertise **`federated_push`** and **`signal_ws`** per relay.
 - **Ops:** Cipher stack **on by default**; `--disable-cipher-stack` to turn off; public URL via `CIPHER_PUBLIC_RELAY_URL` (see [`network/SIGNAL-MESH.public.md`](network/SIGNAL-MESH.public.md)).
 
+### Fixes
+
+- **Build:** enable clap **`env`** feature so `CIPHER_*` / `#[arg(env = …)]` compiles on release CI.
+
 ### Deploy
 
 1. Tag **v0.1.24**, wait for GitHub Release assets.
