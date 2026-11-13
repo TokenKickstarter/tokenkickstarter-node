@@ -38,6 +38,8 @@
 //! which implements `Get<U256>` for `pallet_evm::Config::BlockGasLimit`.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+// Substrate `#[frame_support::pallet]` (`CloneNoBound`) generates `.clone()` on `Copy` fields in Clippy >= 1.100.
+#![allow(clippy::clone_on_copy)]
 
 extern crate alloc;
 
@@ -81,10 +83,16 @@ pub fn weight_ref_time_per_gas(
 
 /// Largest gas total that fits in `normal_max_ref_time` at `weight_per_gas`.
 pub fn max_gas_within_weight(normal_max_ref_time: u64, weight_per_gas: u64) -> u64 {
-    if weight_per_gas == 0 {
-        return 0;
-    }
-    normal_max_ref_time / weight_per_gas
+    normal_max_ref_time.checked_div(weight_per_gas).unwrap_or(0)
+}
+
+/// Computes a clamped proportional gas-limit adjustment step (`delta * current_limit / target / 8`).
+fn proportional_gas_step(delta: u64, current_limit: u64, target: u64, max_step: u64) -> u64 {
+    let proportional = delta
+        .saturating_mul(current_limit)
+        .checked_div(target)
+        .map_or(max_step, |scaled| scaled / 8);
+    proportional.min(max_step)
 }
 
 #[frame_support::pallet]
@@ -211,12 +219,7 @@ pub mod pallet {
                 // adjustment = excess/target × current_limit × max_adj
                 // Capped at MaxAdjustmentPermill/1000 of current_limit
                 let max_increase = current_limit.saturating_mul(max_adj_permill) / 1000;
-                let proportional = if target > 0 {
-                    excess.saturating_mul(current_limit) / target / 8
-                } else {
-                    max_increase
-                };
-                let increase = proportional.min(max_increase);
+                let increase = proportional_gas_step(excess, current_limit, target, max_increase);
                 let nl = current_limit
                     .saturating_add(increase)
                     .min(T::MaxGasLimit::get());
@@ -232,12 +235,7 @@ pub mod pallet {
                 // Block was UNDER target → scale down
                 let deficit = target.saturating_sub(last_used);
                 let max_decrease = current_limit.saturating_mul(max_adj_permill) / 1000;
-                let proportional = if target > 0 {
-                    deficit.saturating_mul(current_limit) / target / 8
-                } else {
-                    max_decrease
-                };
-                let decrease = proportional.min(max_decrease);
+                let decrease = proportional_gas_step(deficit, current_limit, target, max_decrease);
                 let nl = current_limit
                     .saturating_sub(decrease)
                     .max(T::MinGasLimit::get());
