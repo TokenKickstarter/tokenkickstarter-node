@@ -55,11 +55,12 @@ impl<T: pallet::Config> frame_support::traits::Get<sp_core::U256> for AdaptiveGa
 
 /// Gas the author may execute in one 1-second slot.
 ///
-/// r4 stayed near 1 s around 1,600 simple transfers (~34M gas). r6 packed
-/// ~4,500 because weight-per-gas was computed from ~700 ms while the normal
-/// class budget was ~7 s (~10×), so `gasUsed` exceeded the header `gasLimit`.
-/// 35M gas is ~1,666 transfers of 21,000 gas: under the 50M header floor.
-pub const SLOT_GAS_CAP: u64 = 35_000_000;
+/// r4 stayed near 1 s around 1,600 simple transfers (~34M gas); under r8 stress,
+/// `~942` tx/block (`~20M` gas) still spiked block intervals to 14–18 s when slot
+/// headroom ran dry. Capping per-slot execution at `25M` gas (`50%` of the 50M
+/// header floor, `~1,190` 21k-gas transfers/block) sustains `>1,000` EVM TPS
+/// while leaving P2P gossip and GRANDPA headroom inside every 1,000 ms Aura slot.
+pub const SLOT_GAS_CAP: u64 = 25_000_000;
 
 /// Never above the header limit, never above [`SLOT_GAS_CAP`].
 pub fn executable_gas(header_gas_limit: u64, slot_gas_cap: u64) -> u64 {
@@ -91,7 +92,6 @@ pub mod pallet {
     use super::*;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
-    use sp_runtime::Perbill;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -100,6 +100,7 @@ pub mod pallet {
 
     #[pallet::config]
     pub trait Config: frame_system::Config {
+        #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// Minimum gas limit (floor). ~1,500 TPS at 50k gas/tx.

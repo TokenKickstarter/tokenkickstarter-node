@@ -4,6 +4,31 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.26
+
+**High-throughput Cipher relay/shard pipeline + L1 `specVersion 413` slot calibration** — eliminates HTTP/WS bottlenecks, removes global shard ingest locking, and aligns 1-second Aura slot headroom with `SLOT_GAS_CAP`.
+
+### Features & Performance
+
+- **`cipher-relay`:** 64-shard `ShardedChunkStore`, `.with_upgrades()` for reliable HTTP 101 WebSocket upgrades on `:4002/ws` & `:4003`, pooled shared `reqwest::Client`, `DiscoveryCache`, `POST /store/batch`, and batch shard forwarding (`POST /ingest/batch` with `/ingest` fallback).
+- **`cipher-shard-executor`:** per-shard `Mutex<ShardSlot>` locks with atomic `total_pending`, `POST /ingest/batch`, and lock-free Merkle/DA + atomic `.tmp` + `rename` anchor JSON sealing.
+- **`tks-chain-node` anchor worker:** sorted `anchor_*.json` sweep with sequential `pending_nonce` tracking across ticks.
+- **`cipher-loadtest`:** pooled HTTP client + `--batch-size` + `--shard-url` benchmarking support.
+
+### Runtime (`specVersion 413`)
+
+- **`pallet-adaptive-gas`:** tightened `SLOT_GAS_CAP` from `35_000_000` to `25_000_000` (50% of `50M` floor).
+- **Aura / weights (`runtime` & `service.rs`):** kept `MILLISECS_PER_BLOCK = 1000` (`chainId 7779`), aligned `WEIGHT_MILLISECS_PER_BLOCK = 700` + `AUTHORING_WEIGHT_HEADROOM_MS`, and tightened Aura `block_proposal_slot_portion` to `0.55` (max `0.75`).
+
+### Deploy
+
+1. Tag **v0.1.26**, wait for GitHub Release assets (`tks-chain-node` + `tks_runtime.compact.compressed.wasm`).
+2. VPS: `VERSION=v0.1.26 bash network/scripts/vps-docker-github-release.sh`.
+3. Runtime upgrade (`412 -> 413`): `TKS_WASM=/opt/tks-docker/config/tks_runtime.compact.compressed.wasm bash network/scripts/live-multisig-sudo-set-code.sh`.
+4. Verify: `bash network/scripts/vps-docker-audit.sh`, `bash network/scripts/anchor-store-smoke.sh`, and `EXPECTED_SPEC=413 bash network/scripts/public-rpc-test.sh`.
+
+---
+
 ## v0.1.25
 
 **Cipher relay `/fetch` hotfix** — HTTP mailbox no longer blocks on libp2p chunk pull when messages are already stored locally.

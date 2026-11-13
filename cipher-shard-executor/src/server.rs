@@ -76,7 +76,7 @@ async fn handle_hybrid(
                 "note": "Ciphertext storage and POST /ack live on relay; this host batches leaves for L1 anchors.",
                 "preferred_store": "https://relay.tokenkickstarter.com/store",
                 "preferred_ack": "https://relay.tokenkickstarter.com/ack",
-                "endpoints": ["/ingest", "/store", "/health", "/version", "/hybrid/stats", "/stats"]
+                "endpoints": ["/ingest", "/ingest/batch", "/store", "/health", "/version", "/hybrid/stats", "/stats"]
             });
             ok_json(&body.to_string())
         }
@@ -94,10 +94,25 @@ async fn handle_hybrid(
             };
             // Ingress is counted once at the relay `/store` when using embedded node + forward.
             let local = hybrid.shard_route_index(&msg.recipient_id);
-            let mut guard = engine.lock().await;
-            guard.ingest(local, msg);
-            let n = guard.pending_total();
+            let n = engine.ingest(local, msg).await;
             ok_json(&format!(r#"{{"queued":{n}}}"#))
+        }
+        (Method::POST, "/ingest/batch") => {
+            let bytes = match body.collect().await {
+                Ok(collected) => collected.to_bytes(),
+                Err(_) => return err(StatusCode::BAD_REQUEST, "body read failed"),
+            };
+            let msgs: Vec<CipherBatchMessage> = match serde_json::from_slice(&bytes) {
+                Ok(m) => m,
+                Err(e) => return err(StatusCode::BAD_REQUEST, &format!("invalid json: {e}")),
+            };
+            let accepted = msgs.len();
+            let routed: Vec<(u16, CipherBatchMessage)> = msgs
+                .into_iter()
+                .map(|m| (hybrid.shard_route_index(&m.recipient_id), m))
+                .collect();
+            let queued = engine.ingest_batch(routed).await;
+            ok_json(&format!(r#"{{"accepted":{accepted},"queued":{queued}}}"#))
         }
         (Method::POST, "/store") => {
             // Same JSON shape as cipher-relay `/store` (auditors often hit the shard vhost).
@@ -129,9 +144,7 @@ async fn handle_hybrid(
                 stored_at: chunk.stored_at,
             };
             let local = hybrid.shard_route_index(&msg.recipient_id);
-            let mut guard = engine.lock().await;
-            guard.ingest(local, msg);
-            let n = guard.pending_total();
+            let n = engine.ingest(local, msg).await;
             ok_json(&format!(
                 r#"{{"Stored":{{"message_id":"{}"}},"queued":{n}}}"#,
                 chunk.message_id

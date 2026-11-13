@@ -7,7 +7,7 @@ RELAY="${TKS_RELAY:-https://relay.tokenkickstarter.com}"
 SHARD="${TKS_SHARD:-https://shard.tokenkickstarter.com}"
 EXPECTED_GENESIS="${EXPECTED_GENESIS:-0x28a554eb58356946b3ac7ce61fa1562cbda2dd1171ee8c7719140e0e33a2e31c}"
 EXPECTED_CHAIN="${EXPECTED_CHAIN:-TKS Network}"
-EXPECTED_SPEC="${EXPECTED_SPEC:-412}"
+EXPECTED_SPEC="${EXPECTED_SPEC:-413}"
 MULTISIG="${MULTISIG:-0x8eeb8be59ccb1c65211ab787e6ba174753a68f1a}"
 ALICE_LEGACY="${ALICE_LEGACY:-0xe04cc55ebee1cbce552f250e85c57b70b2e2625b}"
 V1="${V1:-0x02dd89492248adf97484f3e55b1498e969e87632}"
@@ -77,7 +77,8 @@ check_ok "system_version" "$r" "
 import json,sys
 d=json.load(sys.stdin)
 v=d['result']
-assert v.startswith('0.1.15') or v.startswith('0.1.16') or v.startswith('0.1.17') or v.startswith('0.1.18') or v.startswith('0.1.19') or v.startswith('0.1.20')
+parts=[int(x) for x in v.split('-',1)[0].split('.')[:3]]
+assert tuple(parts)>=(0,1,15)
 print(v)
 "
 

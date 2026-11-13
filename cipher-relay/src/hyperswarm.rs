@@ -299,10 +299,9 @@ pub async fn run_hyperswarm(
                         )) => {
                             match message {
                                 request_response::Message::Request { request, channel, .. } => {
-                                    let chunk = {
-                                        let s = store.read().await;
-                                        s.get_chunk(&request.recipient_id, &request.message_id)
-                                    };
+                                    let chunk = store
+                                        .get_chunk(&request.recipient_id, &request.message_id)
+                                        .await;
                                     let _ = swarm.behaviour_mut().chunk.send_response(
                                         channel,
                                         ChunkResponse { chunk },
@@ -311,8 +310,7 @@ pub async fn run_hyperswarm(
                                 request_response::Message::Response { request_id, response, .. } => {
                                     if let Some(req) = pull_targets.remove(&request_id) {
                                         if let Some(chunk) = response.chunk {
-                                            let mut s = store.write().await;
-                                            if s.store_replicate(chunk).is_ok() {
+                                            if store.store_replicate(chunk).await.is_ok() {
                                                 for (rid, pending) in pull_pending.iter_mut() {
                                                     pending.remove(&(req.recipient_id.clone(), req.message_id.clone()));
                                                     if pending.is_empty() {
@@ -327,8 +325,7 @@ pub async fn run_hyperswarm(
                                             }
                                         }
                                     } else if let Some(chunk) = response.chunk {
-                                        let mut s = store.write().await;
-                                        let _ = s.store_replicate(chunk);
+                                        let _ = store.store_replicate(chunk).await;
                                     }
                                 }
                             }

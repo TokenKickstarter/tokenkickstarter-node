@@ -105,7 +105,7 @@ impl CipherRegisterShardCmd {
             spec_version,
             transaction_version,
         )
-            .map_err(|e| sc_cli::Error::Application(e.into()))?;
+        .map_err(|e| sc_cli::Error::Application(e.into()))?;
         submit_or_print(&self.submit_url, &ext, self.dry_run, "force_rotate")?;
 
         Ok(())

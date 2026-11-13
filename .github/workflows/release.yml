@@ -250,6 +250,9 @@ jobs:
           if [ -f network/tks-network-spec-raw.sha256 ]; then
             cp network/tks-network-spec-raw.sha256 release-files/tks-network-spec-raw.sha256
           fi
+          if [ -f target/release/wbuild/tks-runtime/tks_runtime.compact.compressed.wasm ]; then
+            cp target/release/wbuild/tks-runtime/tks_runtime.compact.compressed.wasm release-files/tks_runtime.compact.compressed.wasm
+          fi
           echo "Chainspec generated"
 
       - name: Reject production secrets in release bundle

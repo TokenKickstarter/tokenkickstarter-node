@@ -1,11 +1,88 @@
 //! Merge on-chain validator endpoints with live libp2p gossip peers.
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use cipher_hybrid::HybridController;
 use serde::{Deserialize, Serialize};
+use tokio::sync::{Mutex, RwLock};
 
 use crate::hyperswarm::SwarmDirectory;
+
+#[derive(Clone, Debug)]
+struct CachedValidators {
+    fetched_at: Instant,
+    validators: Vec<ChainValidator>,
+}
+
+/// TTL cache for on-chain `tks_listSwarmValidators` RPC lookups so high-RPS `/store`
+/// and `/discovery` paths never stampede the Substrate RPC or create `reqwest::Client::new()`.
+#[derive(Clone)]
+pub struct DiscoveryCache {
+    ttl: Duration,
+    entries: Arc<RwLock<HashMap<String, CachedValidators>>>,
+    refresh_lock: Arc<Mutex<()>>,
+}
+
+impl DiscoveryCache {
+    pub fn new(ttl: Duration) -> Self {
+        Self {
+            ttl,
+            entries: Arc::new(RwLock::new(HashMap::new())),
+            refresh_lock: Arc::new(Mutex::new(())),
+        }
+    }
+
+    async fn get_validators(
+        &self,
+        rpc_url: &str,
+        client: &reqwest::Client,
+    ) -> Result<Vec<ChainValidator>, String> {
+        {
+            let guard = self.entries.read().await;
+            if let Some(entry) = guard.get(rpc_url) {
+                if entry.fetched_at.elapsed() < self.ttl {
+                    return Ok(entry.validators.clone());
+                }
+            }
+        }
+
+        let _refresh_guard = self.refresh_lock.lock().await;
+        // Re-check after acquiring refresh lock in case another task just refreshed.
+        {
+            let guard = self.entries.read().await;
+            if let Some(entry) = guard.get(rpc_url) {
+                if entry.fetched_at.elapsed() < self.ttl {
+                    return Ok(entry.validators.clone());
+                }
+            }
+        }
+
+        match fetch_chain_validators(rpc_url, client).await {
+            Ok(validators) => {
+                let mut guard = self.entries.write().await;
+                guard.insert(
+                    rpc_url.to_string(),
+                    CachedValidators {
+                        fetched_at: Instant::now(),
+                        validators: validators.clone(),
+                    },
+                );
+                Ok(validators)
+            }
+            Err(e) => {
+                // Serve stale entries on transient RPC error instead of dropping relay mesh visibility.
+                let guard = self.entries.read().await;
+                if let Some(entry) = guard.get(rpc_url) {
+                    Ok(entry.validators.clone())
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RelayEndpoint {
@@ -81,6 +158,55 @@ pub async fn build_discovery(
     swarm: Option<Arc<SwarmDirectory>>,
     hybrid: Option<Arc<HybridController>>,
 ) -> DiscoveryResponse {
+    static FALLBACK_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    let client = FALLBACK_CLIENT.get_or_init(reqwest::Client::new);
+    build_discovery_inner(
+        public_http,
+        public_signal_ws,
+        self_peer_id,
+        chain_rpc_url,
+        swarm,
+        hybrid,
+        client,
+        None,
+    )
+    .await
+}
+
+pub async fn build_discovery_cached(
+    public_http: Option<String>,
+    public_signal_ws: Option<String>,
+    self_peer_id: Option<String>,
+    chain_rpc_url: Option<String>,
+    swarm: Option<Arc<SwarmDirectory>>,
+    hybrid: Option<Arc<HybridController>>,
+    http_client: &reqwest::Client,
+    cache: &DiscoveryCache,
+) -> DiscoveryResponse {
+    build_discovery_inner(
+        public_http,
+        public_signal_ws,
+        self_peer_id,
+        chain_rpc_url,
+        swarm,
+        hybrid,
+        http_client,
+        Some(cache),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn build_discovery_inner(
+    public_http: Option<String>,
+    public_signal_ws: Option<String>,
+    self_peer_id: Option<String>,
+    chain_rpc_url: Option<String>,
+    swarm: Option<Arc<SwarmDirectory>>,
+    hybrid: Option<Arc<HybridController>>,
+    http_client: &reqwest::Client,
+    cache: Option<&DiscoveryCache>,
+) -> DiscoveryResponse {
     let mut relays = Vec::new();
 
     if let Some(http) = public_http.clone() {
@@ -101,7 +227,11 @@ pub async fn build_discovery(
     }
 
     if let Some(url) = chain_rpc_url.as_ref() {
-        if let Ok(chain) = fetch_chain_validators(url).await {
+        let validators_res = match cache {
+            Some(c) => c.get_validators(url, http_client).await,
+            None => fetch_chain_validators(url, http_client).await,
+        };
+        if let Ok(chain) = validators_res {
             for v in chain {
                 let http = multiaddr_to_http_hint(&v.endpoint);
                 relays.push(RelayEndpoint {
@@ -144,11 +274,8 @@ pub async fn build_discovery(
     relays.sort_by(|a, b| b.priority.cmp(&a.priority));
     relays.dedup_by(|a, b| a.http_base == b.http_base && a.http_base != "");
 
-    let self_signal_ws = public_signal_ws.or_else(|| {
-        public_http
-            .as_ref()
-            .and_then(|h| http_base_to_signal_ws(h))
-    });
+    let self_signal_ws =
+        public_signal_ws.or_else(|| public_http.as_ref().and_then(|h| http_base_to_signal_ws(h)));
 
     DiscoveryResponse {
         self_http: public_http,
@@ -167,25 +294,29 @@ struct RpcEnvelope<T> {
     result: Option<T>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 struct ChainValidator {
+    #[allow(dead_code)]
     account_id: String,
     region: String,
     endpoint: String,
     active: bool,
 }
 
-async fn fetch_chain_validators(rpc_url: &str) -> Result<Vec<ChainValidator>, String> {
+async fn fetch_chain_validators(
+    rpc_url: &str,
+    client: &reqwest::Client,
+) -> Result<Vec<ChainValidator>, String> {
     let body = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "tks_listSwarmValidators",
         "params": [],
         "id": 1
     });
-    let client = reqwest::Client::new();
     let resp = client
         .post(rpc_url)
         .json(&body)
+        .timeout(Duration::from_secs(3))
         .send()
         .await
         .map_err(|e| e.to_string())?;

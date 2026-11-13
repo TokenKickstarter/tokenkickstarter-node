@@ -222,11 +222,13 @@ impl OnUnbalanced<fungible::Credit<<Runtime as frame_system::Config>::AccountId,
 // blocks, governance can vote to increase BLOCK_GAS_LIMIT via on-chain upgrade.
 // No hard-fork needed — spec_version bump + WASM upgrade.
 
-/// Documented authoring budget inside a 1-second slot. Not the EVM weight
-/// divisor: that divisor is the live normal-class max. Using 700ms against a
-/// 7s block budget under-counts weight and `gasUsed` exceeds `gasLimit`.
-#[allow(dead_code)]
+/// Authoring compute budget inside each 1,000 ms Aura slot (leaving >= 300 ms
+/// for block import, P2P gossip, and GRANDPA finality). Staking/Sudo still
+/// retain a 7 s `BlockWeights` container, while EVM inclusion is bounded to
+/// `pallet_adaptive_gas::SLOT_GAS_CAP` (25M gas) inside `WEIGHT_MILLISECS_PER_BLOCK`.
 const WEIGHT_MILLISECS_PER_BLOCK: u64 = 700;
+const AUTHORING_WEIGHT_HEADROOM_MS: u64 = MILLISECS_PER_BLOCK - WEIGHT_MILLISECS_PER_BLOCK;
+const _: u64 = AUTHORING_WEIGHT_HEADROOM_MS;
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
 parameter_types! {
@@ -1544,5 +1546,46 @@ impl_runtime_apis! {
                 pallet_ethereum::Call::<Runtime>::transact { transaction }.into(),
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod calibration_tests {
+    use super::*;
+    use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
+
+    #[test]
+    fn aura_slot_and_weight_calibration_are_consistent() {
+        assert_eq!(MILLISECS_PER_BLOCK, 1000);
+        assert_eq!(WEIGHT_MILLISECS_PER_BLOCK, 700);
+        assert!(WEIGHT_MILLISECS_PER_BLOCK < MILLISECS_PER_BLOCK);
+        assert_eq!(pallet_adaptive_gas::SLOT_GAS_CAP, 25_000_000);
+        assert!(pallet_adaptive_gas::SLOT_GAS_CAP <= BLOCK_GAS_LIMIT);
+
+        let normal_max = BlockWeights::get()
+            .get(DispatchClass::Normal)
+            .max_total
+            .unwrap();
+        let wpg = pallet_adaptive_gas::weight_ref_time_per_gas(
+            normal_max.ref_time(),
+            BLOCK_GAS_LIMIT,
+            pallet_adaptive_gas::SLOT_GAS_CAP,
+        );
+        let max_gas = pallet_adaptive_gas::max_gas_within_weight(normal_max.ref_time(), wpg);
+        assert!(max_gas <= pallet_adaptive_gas::SLOT_GAS_CAP);
+
+        let anchor_info =
+            RuntimeCall::HyperSwarmAnchor(pallet_hyperswarm_anchor::Call::post_anchor {
+                shard_id: 0,
+                dag_root_hash: [1u8; 32],
+                message_count: 100,
+                epoch: 1,
+            })
+            .get_dispatch_info();
+        let max_ext = BlockWeights::get()
+            .get(DispatchClass::Normal)
+            .max_extrinsic
+            .unwrap();
+        assert!(anchor_info.call_weight.all_lte(max_ext));
     }
 }

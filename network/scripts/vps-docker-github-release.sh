@@ -27,10 +27,26 @@ if curl -fsSL -o "${WORKDIR}/SHA256SUMS.txt" "${BASE}/SHA256SUMS.txt" 2>/dev/nul
     arm64|aarch64) SUMS_NAME="tks-chain-node-${VERSION}-linux-arm64" ;;
     *) SUMS_NAME="" ;;
   esac
-  if [[ -n "$SUMS_NAME" ]] && grep -q " ${SUMS_NAME}$" "${WORKDIR}/SHA256SUMS.txt"; then
-    (cd "$WORKDIR" && grep " ${SUMS_NAME}$" SHA256SUMS.txt | sha256sum -c -)
+  EXPECTED=""
+  for candidate in \
+    "tks-chain-node-${VERSION}-linux-amd64" \
+    "tks-chain-node-linux-${ARCH}" \
+    "tks-chain-node-${VERSION}-linux-arm64"; do
+    line="$(grep -E " ${candidate}$" "${WORKDIR}/SHA256SUMS.txt" 2>/dev/null | head -1 || true)"
+    if [[ -n "$line" ]]; then
+      EXPECTED="${line%% *}"
+      break
+    fi
+  done
+  if [[ -n "$EXPECTED" ]]; then
+    ACTUAL="$(sha256sum "$BIN" | awk '{print $1}')"
+    if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+      echo ">> SHA256 mismatch for $BIN (expected $EXPECTED, got $ACTUAL)" >&2
+      exit 1
+    fi
+    echo ">> SHA256 OK ($BIN)"
   else
-    echo ">> WARN: no SHA256SUMS entry for ${SUMS_NAME}; skipping checksum"
+    echo ">> WARN: no SHA256SUMS entry for ${SUMS_NAME:-$ARCH}; skipping checksum"
   fi
 else
   echo ">> WARN: no SHA256SUMS.txt on release; skipping checksum"

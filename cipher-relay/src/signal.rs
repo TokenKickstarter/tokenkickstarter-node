@@ -116,7 +116,10 @@ impl SignalHub {
         {
             let _ = old.tx.send(Message::Close(None));
         }
-        info!("[Signal] {addr} connected ({} peers)", self.sessions.read().await.len());
+        info!(
+            "[Signal] {addr} connected ({} peers)",
+            self.sessions.read().await.len()
+        );
 
         let queued = self.queues.write().await.remove(&addr);
         if let Some(messages) = queued {
@@ -155,13 +158,20 @@ pub async fn run_signal_server(
     port: u16,
     hub: Arc<SignalHub>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    hub.spawn_cleanup();
     let addr: SocketAddr = format!("0.0.0.0:{port}").parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("⚡ Embedded Cipher signal on http://0.0.0.0:{port} (/ws, /internal/push)");
+    serve_signal_listener(listener, hub).await;
+    Ok(())
+}
+
+pub(crate) async fn serve_signal_listener(listener: tokio::net::TcpListener, hub: Arc<SignalHub>) {
+    hub.spawn_cleanup();
 
     loop {
-        let (stream, remote) = listener.accept().await?;
+        let Ok((stream, remote)) = listener.accept().await else {
+            continue;
+        };
         let hub = hub.clone();
         tokio::spawn(async move {
             let io = TokioIo::new(stream);
@@ -169,8 +179,10 @@ pub async fn run_signal_server(
                 let hub = hub.clone();
                 async move { handle_signal_http(req, remote, hub).await }
             });
+            // `.with_upgrades()` is required in hyper 1 so WebSocket connections survive 101 Switching Protocols.
             if let Err(e) = http1::Builder::new()
                 .serve_connection(io, service)
+                .with_upgrades()
                 .await
             {
                 debug!("Signal HTTP connection ended: {e}");
@@ -179,48 +191,71 @@ pub async fn run_signal_server(
     }
 }
 
+/// Attempts to handle `GET /ws?addr=<id>` WebSocket upgrade on either `:4003` or `:4002`.
+pub(crate) fn try_upgrade_ws(
+    req: Request<Incoming>,
+    hub: &Arc<SignalHub>,
+) -> Result<Response<Full<Bytes>>, Request<Incoming>> {
+    if !hyper_tungstenite::is_upgrade_request(&req) || req.uri().path() != "/ws" {
+        return Err(req);
+    }
+
+    let addr = req
+        .uri()
+        .query()
+        .and_then(|q| {
+            q.split('&').find_map(|pair| {
+                let mut it = pair.splitn(2, '=');
+                let k = it.next()?;
+                let v = it.next()?;
+                if k == "addr" {
+                    Some(v.trim().to_lowercase())
+                } else {
+                    None
+                }
+            })
+        })
+        .filter(|a| !a.is_empty());
+
+    let Some(addr) = addr else {
+        return Ok(Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Full::new(Bytes::from("Missing addr parameter")))
+            .unwrap());
+    };
+
+    match hyper_tungstenite::upgrade(req, None) {
+        Ok((resp, ws)) => {
+            let hub = hub.clone();
+            tokio::spawn(async move {
+                match ws.await {
+                    Ok(ws) => run_ws_session(ws, addr, hub).await,
+                    Err(e) => warn!("[Signal] WebSocket upgrade failed: {e}"),
+                }
+            });
+            Ok(resp)
+        }
+        Err(e) => {
+            warn!("[Signal] Rejected invalid WebSocket upgrade: {e}");
+            Ok(Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Full::new(Bytes::from("Invalid WebSocket upgrade")))
+                .unwrap())
+        }
+    }
+}
+
 async fn handle_signal_http(
     req: Request<Incoming>,
     remote: SocketAddr,
     hub: Arc<SignalHub>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
+    let req = match try_upgrade_ws(req, &hub) {
+        Ok(resp) => return Ok(resp),
+        Err(req) => req,
+    };
+
     let path = req.uri().path().to_string();
-
-    if hyper_tungstenite::is_upgrade_request(&req) && path == "/ws" {
-        let addr = req
-            .uri()
-            .query()
-            .and_then(|q| {
-                q.split('&').find_map(|pair| {
-                    let mut it = pair.splitn(2, '=');
-                    let k = it.next()?;
-                    let v = it.next()?;
-                    if k == "addr" {
-                        Some(v.to_lowercase())
-                    } else {
-                        None
-                    }
-                })
-            })
-            .filter(|a| !a.is_empty());
-
-        let Some(addr) = addr else {
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Full::new(Bytes::from("Missing addr parameter")))
-                .unwrap());
-        };
-
-        let (resp, ws) = hyper_tungstenite::upgrade(req, None).unwrap();
-        let hub = hub.clone();
-        tokio::spawn(async move {
-            match ws.await {
-                Ok(ws) => run_ws_session(ws, addr, hub).await,
-                Err(e) => warn!("[Signal] WebSocket upgrade failed: {e}"),
-            }
-        });
-        return Ok(resp);
-    }
 
     if req.method() == Method::GET && (path == "/" || path == "/health") {
         return Ok(Response::builder()
@@ -304,6 +339,7 @@ async fn run_ws_session(
 ) {
     let (mut sink, mut stream) = ws.split();
     let (to_client, mut from_hub) = mpsc::unbounded_channel();
+    let ack_tx = to_client.clone();
     let session_id = hub.register_session(addr.clone(), to_client).await;
 
     let writer = tokio::spawn(async move {
@@ -314,22 +350,16 @@ async fn run_ws_session(
         }
     });
 
-    let ack_tx = hub.sessions.read().await.get(&addr.to_lowercase()).map(|s| s.tx.clone());
-
     while let Some(frame) = stream.next().await {
         match frame {
             Ok(Message::Text(text)) => {
                 if let Some(reply) = handle_ws_text(&addr, &text, &hub).await {
-                    if let Some(ref tx) = ack_tx {
-                        let _ = tx.send(Message::Text(reply));
-                    }
+                    let _ = ack_tx.send(Message::Text(reply));
                 }
             }
             Ok(Message::Close(_)) => break,
             Ok(Message::Ping(p)) => {
-                if let Some(ref tx) = ack_tx {
-                    let _ = tx.send(Message::Pong(p));
-                }
+                let _ = ack_tx.send(Message::Pong(p));
             }
             Ok(_) => {}
             Err(e) => {

@@ -48,9 +48,9 @@ pub async fn run_embedded(cfg: EmbeddedExecutorConfig) -> Result<(), String> {
             loop {
                 interval.tick().await;
                 let epoch_val = epoch.load(Ordering::Relaxed);
-                let mut guard = multi_tick.lock().await;
-                if let Err(e) =
-                    guard.seal_ready(shard_id, epoch_val, &da_dir, &anchors_dir, &hybrid_tick)
+                if let Err(e) = multi_tick
+                    .seal_ready(shard_id, epoch_val, &da_dir, &anchors_dir, &hybrid_tick)
+                    .await
                 {
                     log::error!("Cipher hybrid seal failed: {e}");
                 }

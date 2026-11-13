@@ -46,10 +46,18 @@ pub fn spawn_anchor_submitter(
         Some("network"),
         async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+            let mut pending_nonce: Option<(std::time::Instant, tks_runtime::Nonce)> = None;
             loop {
                 interval.tick().await;
-                if let Err(e) =
-                    process_anchor_dir(&client, &pool, &anchors_dir, &signer, account).await
+                if let Err(e) = process_anchor_dir(
+                    &client,
+                    &pool,
+                    &anchors_dir,
+                    &signer,
+                    account,
+                    &mut pending_nonce,
+                )
+                .await
                 {
                     log::warn!(target: "cipher-anchor", "anchor submit pass failed: {e}");
                 }
@@ -65,6 +73,7 @@ async fn process_anchor_dir(
     dir: &Path,
     signer: &ecdsa::Pair,
     account: AccountId20,
+    pending_nonce: &mut Option<(std::time::Instant, tks_runtime::Nonce)>,
 ) -> Result<(), String> {
     if !dir.is_dir() {
         return Ok(());
@@ -72,6 +81,7 @@ async fn process_anchor_dir(
     let posted_dir = dir.join(".posted");
     std::fs::create_dir_all(&posted_dir).map_err(|e| e.to_string())?;
 
+    let mut anchor_paths = Vec::new();
     for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
@@ -82,10 +92,36 @@ async fn process_anchor_dir(
         if !name.starts_with("anchor_") || !name.ends_with(".json") {
             continue;
         }
-        let marker = posted_dir.join(name);
-        if marker.exists() {
+        if posted_dir.join(name).exists() {
             continue;
         }
+        anchor_paths.push(path);
+    }
+
+    if anchor_paths.is_empty() {
+        return Ok(());
+    }
+    anchor_paths.sort();
+
+    // Clear stale local nonce cache after 5s (~5 Aura blocks) in case a prior tx was evicted.
+    if let Some((ts, _)) = *pending_nonce {
+        if ts.elapsed() > std::time::Duration::from_secs(5) {
+            *pending_nonce = None;
+        }
+    }
+
+    let at = client.info().best_hash;
+    let chain_nonce = client
+        .runtime_api()
+        .account_nonce(at, account)
+        .map_err(|e| e.to_string())?;
+    let mut next_nonce = pending_nonce
+        .map(|(_, n)| n.max(chain_nonce))
+        .unwrap_or(chain_nonce);
+
+    for path in anchor_paths {
+        let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        let marker = posted_dir.join(name);
 
         let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
         let payload: AnchorSubmitPayload = match serde_json::from_str(&raw) {
@@ -101,6 +137,7 @@ async fn process_anchor_dir(
             pool,
             signer,
             account,
+            next_nonce,
             payload.shard_id,
             dag_root,
             payload.message_count,
@@ -109,15 +146,19 @@ async fn process_anchor_dir(
         .await
         {
             Ok(hash) => {
+                next_nonce = next_nonce.saturating_add(1);
+                *pending_nonce = Some((std::time::Instant::now(), next_nonce));
                 log::info!(
                     target: "cipher-anchor",
-                    "Submitted post_anchor for {} (tx {:?})",
+                    "Submitted post_anchor for {} (nonce={} tx {:?})",
                     path.display(),
+                    next_nonce - 1,
                     hash
                 );
                 std::fs::write(&marker, hash.encode()).map_err(|e| e.to_string())?;
             }
             Err(e) => {
+                *pending_nonce = None;
                 log::warn!(
                     target: "cipher-anchor",
                     "post_anchor failed for {}: {e}",
@@ -137,11 +178,13 @@ fn parse_hash_hex(s: &str) -> Result<[u8; 32], String> {
         .map_err(|_| "dag_root_hash must be 32 bytes".to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn submit_post_anchor(
     client: &Arc<FullClient>,
     pool: &Arc<Pool>,
     signer: &ecdsa::Pair,
     account: AccountId20,
+    nonce: tks_runtime::Nonce,
     shard_id: u16,
     dag_root_hash: [u8; 32],
     message_count: u32,
@@ -159,10 +202,6 @@ async fn submit_post_anchor(
         .block_hash(0u32.into())
         .map_err(|e| e.to_string())?
         .ok_or("genesis hash missing")?;
-    let nonce = client
-        .runtime_api()
-        .account_nonce(at, account)
-        .map_err(|e| e.to_string())?;
 
     let extra: SignedExtra = (
         frame_system::CheckNonZeroSender::<tks_runtime::Runtime>::new(),

@@ -1,8 +1,8 @@
-# Cipher VPS Signal Server
+# Cipher VPS Signal Server (legacy sidecar)
 
-This folder contains a fully functional Node.js WebRTC Signaling server designed to replace the expensive Cloudflare Durable Object Workers.
+**Production (v0.1.21+):** WebSocket signaling is **embedded in the node** on port **4003** (`cipher-relay` signal module). Prefer nginx `/ws` → `http://127.0.0.1:4003` on `relay.tokenkickstarter.com` and/or `signal.tokenkickstarter.com` — do **not** run this Node sidecar unless you are debugging.
 
-By hosting this alongside your existing Rust `cipher-relay`, you can move all of your high-volume WebRTC signaling and text message polling behind an unlimited and fully free Cloudflare DNS proxy (Orange Cloud).
+This folder is a standalone Node.js WebRTC signaling server (historical replacement for Cloudflare Durable Objects).
 
 ## Deployment Instructions
 

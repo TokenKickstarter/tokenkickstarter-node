@@ -500,10 +500,10 @@ pub fn new_full(
                 keystore: keystore_container.keystore(),
                 sync_oracle: sync_service.clone(),
                 justification_sync_link: sync_service.clone(),
-                // Stop pulling transactions at 2/3 of the 1s slot, and do not
-                // publish a proposal that ran past the slot (r6: 20–40s blocks).
-                block_proposal_slot_portion: SlotProportion::new(2f32 / 3f32),
-                max_block_proposal_slot_portion: Some(SlotProportion::new(1f32)),
+                // Reserve >=250ms per 1s Aura slot for block import, gossip, and GRANDPA
+                // finality so stressed validators keep peers and stay under 1s cadence.
+                block_proposal_slot_portion: SlotProportion::new(0.55f32),
+                max_block_proposal_slot_portion: Some(SlotProportion::new(0.75f32)),
                 telemetry: telemetry.as_ref().map(|x| x.handle()),
                 compatibility_mode: Default::default(),
             },
@@ -683,14 +683,11 @@ pub fn new_full(
                     hyperswarm_bootnodes: cipher_relay.hyperswarm_bootnodes.clone(),
                     hyperswarm_region: Some(cipher_relay.hyperswarm_region.clone()),
                     build_info: cipher_build_info.clone(),
-                    federated_push_key: cipher_relay
-                        .federated_push_key
-                        .clone()
-                        .or_else(|| {
-                            std::env::var("CIPHER_FEDERATED_PUSH_KEY")
-                                .ok()
-                                .filter(|s| !s.is_empty())
-                        }),
+                    federated_push_key: cipher_relay.federated_push_key.clone().or_else(|| {
+                        std::env::var("CIPHER_FEDERATED_PUSH_KEY")
+                            .ok()
+                            .filter(|s| !s.is_empty())
+                    }),
                 };
                 if let Err(e) = cipher_relay::run_relay_server_with(relay_cfg).await {
                     log::error!("Cipher relay exited with error: {e:?}");

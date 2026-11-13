@@ -21,23 +21,16 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
+#[derive(Default)]
 pub struct BatchEngine {
     pending: Vec<CipherBatchMessage>,
     /// Dedupe relay `/store` + forwarded `/ingest` (and shard `/store` retries).
     pending_ids: HashSet<String>,
 }
 
-impl Default for BatchEngine {
-    fn default() -> Self {
-        Self {
-            pending: Vec::new(),
-            pending_ids: HashSet::new(),
-        }
-    }
-}
-
 impl BatchEngine {
-    pub fn ingest(&mut self, msg: CipherBatchMessage) {
+    /// Insert a message into the batch buffer; returns `true` if queued, `false` if dropped/duplicate.
+    pub fn ingest(&mut self, msg: CipherBatchMessage) -> bool {
         if msg.msg_id.len() > MAX_LEAF_FIELD_LEN
             || msg.sender_id.len() > MAX_LEAF_FIELD_LEN
             || msg.recipient_id.len() > MAX_LEAF_FIELD_LEN
@@ -46,36 +39,46 @@ impl BatchEngine {
                 "dropping cipher message {}: id exceeds {MAX_LEAF_FIELD_LEN} bytes",
                 msg.msg_id
             );
-            return;
+            return false;
         }
         // Relay `/store` forwards the same msg_id to `/ingest`. Without this,
         // one client upload became two leaves (r6: 1,020 messages, 2,030 anchored).
         if !self.pending_ids.insert(msg.msg_id.clone()) {
-            return;
+            return false;
         }
         self.pending.push(msg);
+        true
     }
 
     pub fn pending_len(&self) -> usize {
         self.pending.len()
     }
 
-    pub fn seal(
-        &mut self,
-        shard_id: u16,
-        epoch: u32,
-        da_dir: &Path,
-        anchors_dir: &Path,
-    ) -> Result<Option<AnchorSubmitPayload>, String> {
+    /// Drain up to `MAX_ANCHOR_LEAVES` under the shard lock so Merkle/DA I/O can run lock-free.
+    pub fn take_seal_batch(&mut self) -> Vec<CipherBatchMessage> {
         if self.pending.is_empty() {
-            return Ok(None);
+            return Vec::new();
         }
-
         let take_n = self.pending.len().min(MAX_ANCHOR_LEAVES);
         let messages: Vec<CipherBatchMessage> = self.pending.drain(..take_n).collect();
         for m in &messages {
             self.pending_ids.remove(&m.msg_id);
         }
+        messages
+    }
+
+    /// Compute Merkle DAG root, write DA blob, and atomically publish anchor JSON.
+    pub fn finalize_sealed_batch(
+        messages: Vec<CipherBatchMessage>,
+        shard_id: u16,
+        epoch: u32,
+        da_dir: &Path,
+        anchors_dir: &Path,
+    ) -> Result<Option<AnchorSubmitPayload>, String> {
+        if messages.is_empty() {
+            return Ok(None);
+        }
+
         let root = compute_dag_root(&messages);
         let blob = DataAvailabilityBlob {
             shard_id,
@@ -89,13 +92,12 @@ impl BatchEngine {
         std::fs::create_dir_all(anchors_dir).map_err(|e| e.to_string())?;
         let payload =
             AnchorSubmitPayload::new(shard_id, root, count, epoch, da_path.display().to_string());
-        let anchor_file = anchors_dir.join(format!(
-            "anchor_{}_{}.json",
-            shard_id,
-            payload.dag_root_hash.trim_start_matches("0x")
-        ));
+        let root_hex = payload.dag_root_hash.trim_start_matches("0x");
+        let anchor_file = anchors_dir.join(format!("anchor_{}_{}.json", shard_id, root_hex));
+        let tmp_file = anchors_dir.join(format!(".anchor_{}_{}.tmp", shard_id, root_hex));
         let json = serde_json::to_vec_pretty(&payload).map_err(|e| e.to_string())?;
-        std::fs::write(&anchor_file, json).map_err(|e| e.to_string())?;
+        std::fs::write(&tmp_file, json).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp_file, &anchor_file).map_err(|e| e.to_string())?;
 
         log::info!(
             "⚓ Sealed batch: shard={} msgs={} root={} da={}",
@@ -106,6 +108,17 @@ impl BatchEngine {
         );
 
         Ok(Some(payload))
+    }
+
+    pub fn seal(
+        &mut self,
+        shard_id: u16,
+        epoch: u32,
+        da_dir: &Path,
+        anchors_dir: &Path,
+    ) -> Result<Option<AnchorSubmitPayload>, String> {
+        let messages = self.take_seal_batch();
+        Self::finalize_sealed_batch(messages, shard_id, epoch, da_dir, anchors_dir)
     }
 }
 

@@ -38,6 +38,18 @@ Prefer **`--rpc-hide-node-identity`** on the node (v0.1.16+). Extra edge filteri
 
 See [`relay.tokenkickstarter.com.conf`](./relay.tokenkickstarter.com.conf) — short `/fetch`, `/store`, `/ack` timeouts; long timeouts on generic proxy break mobile clients.
 
+### aaPanel (this site only)
+
+Do **not** edit global nginx or other vhosts. For **relay** and **signal** only:
+
+1. **Relay:** Website → `relay.tokenkickstarter.com` → **Configuration file** → *or* add includes under  
+   `/www/server/panel/vhost/nginx/extension/relay.tokenkickstarter.com/` (e.g. `00-cipher-signal.conf` with `/ws` → `127.0.0.1:4003` and `/signal/push` → relay `:4002`).
+2. **Signal:** Website → `signal.tokenkickstarter.com` → reverse-proxy include under  
+   `/www/server/panel/vhost/nginx/proxy/signal.tokenkickstarter.com/` — put `location ^~ /ws` **before** the catch-all `/` (embedded node signal on `:4003`, not the old Docker sidecar).
+3. Run **nginx test** in the panel (or `nginx -t`) then reload.
+
+Embedded signal lives on the fullnode container port **4003** (`127.0.0.1:4003` on the VPS host).
+
 ## Verify (rpc URL only)
 
 ```bash
