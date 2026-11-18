@@ -11,30 +11,43 @@ LABEL description="TKS Blockchain Node v0.1.29 (GitHub Release binary + SHA256 v
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    tar \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eu; \
     case "${TARGETARCH:-amd64}" in \
-      amd64|x86_64) BIN_ARCH="amd64" ;; \
-      arm64|aarch64) BIN_ARCH="arm64" ;; \
+      amd64|x86_64) BIN_ARCH="amd64"; TAR_ARCH="x86_64" ;; \
+      arm64|aarch64) BIN_ARCH="arm64"; TAR_ARCH="arm64" ;; \
       *) echo "Unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     BASE_URL="https://github.com/${TKS_GITHUB_REPO}/releases/download/${TKS_NODE_VERSION}"; \
     BIN_ASSET="tks-chain-node-${TKS_NODE_VERSION}-linux-${BIN_ARCH}"; \
+    TAR_ASSET="tks-chain-node-linux-${TAR_ARCH}-${TKS_NODE_VERSION}.tar.gz"; \
     WASM_ASSET="tks_runtime.compact.compressed.wasm"; \
     TMP_DIR="$(mktemp -d)"; \
-    curl -fsSL -o "${TMP_DIR}/${BIN_ASSET}" "${BASE_URL}/${BIN_ASSET}"; \
-    curl -fsSL -o "${TMP_DIR}/${WASM_ASSET}" "${BASE_URL}/${WASM_ASSET}"; \
     curl -fsSL -o "${TMP_DIR}/SHA256SUMS.txt" "${BASE_URL}/SHA256SUMS.txt"; \
-    EXPECTED_BIN="$(grep -E "[[:space:]](\./)?${BIN_ASSET}$" "${TMP_DIR}/SHA256SUMS.txt" | head -n1 | awk '{print $1}')"; \
-    EXPECTED_WASM="$(grep -E "[[:space:]](\./)?${WASM_ASSET}$" "${TMP_DIR}/SHA256SUMS.txt" | head -n1 | awk '{print $1}')"; \
-    test -n "${EXPECTED_BIN}"; \
-    test -n "${EXPECTED_WASM}"; \
-    echo "${EXPECTED_BIN}  ${TMP_DIR}/${BIN_ASSET}" | sha256sum -c -; \
-    echo "${EXPECTED_WASM}  ${TMP_DIR}/${WASM_ASSET}" | sha256sum -c -; \
+    EXPECTED_BIN="$(grep -E "[[:space:]](\./)?${BIN_ASSET}$" "${TMP_DIR}/SHA256SUMS.txt" | head -n1 | awk '{print $1}' || true)"; \
+    EXPECTED_TAR="$(grep -E "[[:space:]](\./)?${TAR_ASSET}$" "${TMP_DIR}/SHA256SUMS.txt" | head -n1 | awk '{print $1}' || true)"; \
     mkdir -p /app; \
-    install -m 0755 "${TMP_DIR}/${BIN_ASSET}" /app/tks-chain-node; \
-    install -m 0644 "${TMP_DIR}/${WASM_ASSET}" /app/tks_runtime.compact.compressed.wasm; \
+    if [ -n "${EXPECTED_BIN}" ]; then \
+      curl -fsSL -o "${TMP_DIR}/${BIN_ASSET}" "${BASE_URL}/${BIN_ASSET}"; \
+      echo "${EXPECTED_BIN}  ${TMP_DIR}/${BIN_ASSET}" | sha256sum -c -; \
+      install -m 0755 "${TMP_DIR}/${BIN_ASSET}" /app/tks-chain-node; \
+    elif [ -n "${EXPECTED_TAR}" ]; then \
+      curl -fsSL -o "${TMP_DIR}/${TAR_ASSET}" "${BASE_URL}/${TAR_ASSET}"; \
+      echo "${EXPECTED_TAR}  ${TMP_DIR}/${TAR_ASSET}" | sha256sum -c -; \
+      tar -xzf "${TMP_DIR}/${TAR_ASSET}" -C "${TMP_DIR}"; \
+      install -m 0755 "${TMP_DIR}/tks-chain-node-linux-${TAR_ARCH}" /app/tks-chain-node; \
+    else \
+      echo "No verified Linux binary entry found in SHA256SUMS.txt for ${TKS_NODE_VERSION}" >&2; \
+      exit 1; \
+    fi; \
+    EXPECTED_WASM="$(grep -E "[[:space:]](\./)?${WASM_ASSET}$" "${TMP_DIR}/SHA256SUMS.txt" | head -n1 | awk '{print $1}' || true)"; \
+    if [ -n "${EXPECTED_WASM}" ]; then \
+      curl -fsSL -o "${TMP_DIR}/${WASM_ASSET}" "${BASE_URL}/${WASM_ASSET}"; \
+      echo "${EXPECTED_WASM}  ${TMP_DIR}/${WASM_ASSET}" | sha256sum -c -; \
+      install -m 0644 "${TMP_DIR}/${WASM_ASSET}" /app/tks_runtime.compact.compressed.wasm; \
+    fi; \
     rm -rf "${TMP_DIR}"
 
 RUN groupadd -g 10010 -r tks && \
