@@ -4,6 +4,26 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.29
+
+**5-Layer Business-Standard Anti-Flood & Unlinkable Contact Mailbox Architecture** — protects public directory slots, separates unknown request mailboxes from unlinkable contact mailboxes, enforces sender Sybil resistance (ECDSA + on-chain trust cache / Hashcash PoW), and upgrades relay eviction and edge subnet limits.
+
+### Security & Architecture
+
+- **Layer 1 — Authenticated single-slot `peer-dir-v1:*` directory writes ([`cipher-relay`](cipher-relay/src/lib.rs)):**
+  - Enforces mailbox-owner secp256k1 ECDSA authentication (`TKS-CIPHER-STORE-V1`) on `/store` & `/store/batch` writes targeting `peer-dir-v1:*`, enforces `MAX_PEER_DIR_BYTES = 64 KiB`, and replaces in place so at most one newest-timestamp `SignedPeerBundle` slot is stored per identity (with signed `X-TKS-*` mesh forwarding).
+- **Layer 2 — Unlinkable `contact-v1:*` capability mailboxes ([`security.rs`](cipher-relay/src/security.rs), [`signal.rs`](cipher-relay/src/signal.rs)):**
+  - Supports deterministic unlinkable `contact-v1:<sha256>` delivery mailboxes derived per peer over HKDF (`TKS-CIPHER-AUTH-V1` verified without linking back to the user's public `0x...` address) across HTTP `/fetch`, `/ack`, `/store`, and WebSocket `/ws`.
+- **Layer 3 — Sybil-resistant `/store` & `/store/batch` admission (`TKS-CIPHER-STORE-V1` + Tier A On-Chain Gate / Tier B Hashcash PoW):**
+  - Verifies sender ECDSA signature binding recipient, payload SHA-256, and timestamp (`X-TKS-Ts`, `X-TKS-Sig`).
+  - Exempts accounts with non-zero on-chain TKS balance (`eth_getBalance`) or `NameRegistry::ReverseLookup` registration (bounded 120s RPC cache); requires valid `X-TKS-Pow` Hashcash stamps (`CIPHER_POW_BITS`, `429` + `X-TKS-Pow-Required-Bits` challenge) for unregistered zero-balance accounts.
+- **Layer 4 — Partitioned `ShardedChunkStore` quotas & cold eviction:**
+  - Tracks per-recipient chunk/byte caps (`2_000` chunks / `32 MiB`), per-sender request sub-quotas (`64` chunks / `8 MiB`), idempotent `message_id` replacement, and isolated `200`-chunk / `4 MiB` FIFO ring-buffer cold eviction so unverified spam cannot evict or block verified/contact deliveries.
+- **Layer 5 — Edge `/24` & `/64` subnet rate-limit templates ([`network/nginx/relay-http-zones.conf`](network/nginx/relay-http-zones.conf), [`network/nginx/relay.tokenkickstarter.com.conf`](network/nginx/relay.tokenkickstarter.com.conf)):**
+  - Adds Nginx subnet mapping (`/24` IPv4, `/64` IPv6) and dedicated `/store` + `/store/batch` throttling alongside `v0.2.7` CLI defaults.
+
+---
+
 ## v0.1.28
 
 **Relay ECDSA auth, SSRF elimination, & per-IP rate limiting** — closes unauthenticated mailbox tampering/WS hijacking and removes the legacy `/relay` SSRF `RpcProxy` path.

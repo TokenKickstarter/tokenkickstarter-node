@@ -1,12 +1,12 @@
 # Hardened TKS Layer-1 Node image installed from verified GitHub Release assets
 FROM ubuntu:24.04
 
-ARG TKS_NODE_VERSION=v0.1.28
+ARG TKS_NODE_VERSION=v0.1.29
 ARG TKS_GITHUB_REPO=TokenKickstarter/tokenkickstarter-node
 ARG TARGETARCH
 
 LABEL maintainer="Token Kickstarter"
-LABEL description="TKS Blockchain Node v0.1.28 (GitHub Release binary + SHA256 verified)"
+LABEL description="TKS Blockchain Node v0.1.29 (GitHub Release binary + SHA256 verified)"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \

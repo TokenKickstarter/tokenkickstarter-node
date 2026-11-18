@@ -87,37 +87,196 @@ pub enum RelayResponse {
 
 const STORE_SHARDS: usize = 64;
 const MAX_CHUNKS_PER_RECIPIENT: usize = 2_000;
+const MAX_BYTES_PER_RECIPIENT: usize = 32 * 1024 * 1024;
+const MAX_CHUNKS_PER_SENDER: usize = 64;
+const MAX_BYTES_PER_SENDER: usize = 8 * 1024 * 1024;
+const MAX_COLD_CHUNKS_PER_RECIPIENT: usize = 200;
+const MAX_COLD_BYTES_PER_RECIPIENT: usize = 4 * 1024 * 1024;
+const MAX_PEER_DIR_BYTES: usize = 64 * 1024;
 const MAX_KEY_ID_LEN: usize = 128;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChunkPriority {
+    Contact,
+    VerifiedSender,
+    Cold,
+}
+
+impl ChunkPriority {
+    pub fn from_store(recipient_id: &str, auth: &security::StoreCallerAuth) -> Self {
+        if security::is_contact_mailbox(recipient_id) {
+            Self::Contact
+        } else if auth.is_verified_sender() {
+            Self::VerifiedSender
+        } else {
+            Self::Cold
+        }
+    }
+}
+
+#[derive(Clone)]
+struct StoredChunkEntry {
+    chunk: EncryptedChunk,
+    sender: String,
+    priority: ChunkPriority,
+}
 
 #[derive(Default)]
 struct ChunkShard {
-    chunks: HashMap<String, Vec<EncryptedChunk>>,
+    chunks: HashMap<String, Vec<StoredChunkEntry>>,
     registered_peers: HashMap<String, u64>, // evm_address → last_seen timestamp
     notifiers: HashMap<String, Arc<Notify>>,
 }
 
 impl ChunkShard {
-    fn push_chunk(&mut self, chunk: EncryptedChunk) -> (String, Option<Arc<Notify>>) {
+    fn is_valid_chunk_id(id: &str) -> bool {
+        !id.is_empty() && id.len() <= MAX_KEY_ID_LEN
+    }
+
+    fn push_with_policy(
+        &mut self,
+        chunk: EncryptedChunk,
+        sender: &str,
+        priority: ChunkPriority,
+    ) -> Result<(String, Option<Arc<Notify>>, usize), String> {
         let msg_id = chunk.message_id.clone();
+        let chunk_size = chunk.ciphertext.len();
         let notifier = self.notifiers.get(&chunk.recipient_id).cloned();
-        self.chunks
-            .entry(chunk.recipient_id.clone())
-            .or_default()
-            .push(chunk);
-        (msg_id, notifier)
+        let is_peer_dir = security::is_public_directory_mailbox(&chunk.recipient_id);
+        let sender_key = sender.trim().to_ascii_lowercase();
+
+        if is_peer_dir && chunk_size > MAX_PEER_DIR_BYTES {
+            return Err("Peer bundle exceeds directory limit".into());
+        }
+
+        let entries = self.chunks.entry(chunk.recipient_id.clone()).or_default();
+
+        // Layer 1: `peer-dir-v1:*` holds at most one newest entry per owner.
+        if is_peer_dir {
+            let mut freed = 0usize;
+            if let Some(existing) = entries.first_mut() {
+                if chunk.stored_at < existing.chunk.stored_at {
+                    return Err("Stale peer bundle".into());
+                }
+                freed = existing.chunk.ciphertext.len();
+                *existing = StoredChunkEntry {
+                    chunk,
+                    sender: sender_key,
+                    priority: ChunkPriority::VerifiedSender,
+                };
+                entries.truncate(1);
+            } else {
+                entries.push(StoredChunkEntry {
+                    chunk,
+                    sender: sender_key,
+                    priority: ChunkPriority::VerifiedSender,
+                });
+            }
+            return Ok((msg_id, notifier, freed));
+        }
+
+        // Layer 4: Idempotent duplicate `message_id` replacement by same sender.
+        if let Some(existing) = entries.iter_mut().find(|e| e.chunk.message_id == msg_id) {
+            if existing.sender != sender_key && !matches!(existing.priority, ChunkPriority::Cold) {
+                return Err("Message identifier already owned by another sender".into());
+            }
+            let freed = existing.chunk.ciphertext.len();
+            *existing = StoredChunkEntry {
+                chunk,
+                sender: sender_key,
+                priority,
+            };
+            return Ok((msg_id, notifier, freed));
+        }
+
+        let mut freed_bytes = 0usize;
+
+        if priority == ChunkPriority::Cold {
+            if chunk_size > MAX_COLD_BYTES_PER_RECIPIENT {
+                return Err("Chunk exceeds cold quota".into());
+            }
+            // Enforce cold bucket ring-buffer cap (oldest cold chunk evicted first).
+            let mut cold_count = entries
+                .iter()
+                .filter(|e| e.priority == ChunkPriority::Cold)
+                .count();
+            let mut cold_bytes: usize = entries
+                .iter()
+                .filter(|e| e.priority == ChunkPriority::Cold)
+                .map(|e| e.chunk.ciphertext.len())
+                .sum();
+            while cold_count >= MAX_COLD_CHUNKS_PER_RECIPIENT
+                || cold_bytes.saturating_add(chunk_size) > MAX_COLD_BYTES_PER_RECIPIENT
+            {
+                let Some(pos) = entries
+                    .iter()
+                    .position(|e| e.priority == ChunkPriority::Cold)
+                else {
+                    break;
+                };
+                let evicted = entries.remove(pos);
+                let ev_len = evicted.chunk.ciphertext.len();
+                cold_count = cold_count.saturating_sub(1);
+                cold_bytes = cold_bytes.saturating_sub(ev_len);
+                freed_bytes += ev_len;
+            }
+        } else if priority == ChunkPriority::VerifiedSender {
+            // Layer 3 & 4: Per-sender sub-quota on shared request mailboxes (`sealed_mailbox`).
+            let mut sender_count = 0usize;
+            let mut sender_bytes = 0usize;
+            for e in entries.iter() {
+                if e.sender == sender_key {
+                    sender_count += 1;
+                    sender_bytes += e.chunk.ciphertext.len();
+                }
+            }
+            if sender_count >= MAX_CHUNKS_PER_SENDER
+                || sender_bytes.saturating_add(chunk_size) > MAX_BYTES_PER_SENDER
+            {
+                return Err("Sender quota exceeded".into());
+            }
+        }
+
+        // Enforce overall recipient chunk & byte budgets; evict Cold entries first before rejecting.
+        let mut total_bytes: usize = entries.iter().map(|e| e.chunk.ciphertext.len()).sum();
+        while entries.len() >= MAX_CHUNKS_PER_RECIPIENT
+            || total_bytes.saturating_add(chunk_size) > MAX_BYTES_PER_RECIPIENT
+        {
+            if let Some(pos) = entries
+                .iter()
+                .position(|e| e.priority == ChunkPriority::Cold)
+            {
+                let evicted = entries.remove(pos);
+                let ev_len = evicted.chunk.ciphertext.len();
+                total_bytes = total_bytes.saturating_sub(ev_len);
+                freed_bytes += ev_len;
+            } else {
+                return Err("Mailbox quota exceeded".into());
+            }
+        }
+
+        entries.push(StoredChunkEntry {
+            chunk,
+            sender: sender_key,
+            priority,
+        });
+        Ok((msg_id, notifier, freed_bytes))
     }
 
     fn fetch(&self, recipient_id: &str) -> Vec<EncryptedChunk> {
-        self.chunks.get(recipient_id).cloned().unwrap_or_default()
+        self.chunks
+            .get(recipient_id)
+            .map(|entries| entries.iter().map(|e| e.chunk.clone()).collect())
+            .unwrap_or_default()
     }
 
     fn ack(&mut self, recipient_id: &str, message_ids: &[String]) -> (usize, usize) {
         if let Some(chunks) = self.chunks.get_mut(recipient_id) {
             let before = chunks.len();
             let mut freed_bytes = 0usize;
-            chunks.retain(|c| {
-                if message_ids.contains(&c.message_id) {
-                    freed_bytes += c.ciphertext.len();
+            chunks.retain(|e| {
+                if message_ids.contains(&e.chunk.message_id) {
+                    freed_bytes += e.chunk.ciphertext.len();
                     false
                 } else {
                     true
@@ -136,9 +295,9 @@ impl ChunkShard {
     fn cleanup_expired(&mut self, now: u64) -> usize {
         let mut freed_bytes = 0usize;
         for chunks in self.chunks.values_mut() {
-            chunks.retain(|c| {
-                if c.expires_at < now {
-                    freed_bytes += c.ciphertext.len();
+            chunks.retain(|e| {
+                if e.chunk.expires_at < now {
+                    freed_bytes += e.chunk.ciphertext.len();
                     false
                 } else {
                     true
@@ -222,33 +381,40 @@ impl ShardedChunkStore {
     }
 
     pub async fn store(&self, chunk: EncryptedChunk) -> Result<String, String> {
-        if chunk.recipient_id.is_empty()
-            || chunk.recipient_id.len() > MAX_KEY_ID_LEN
-            || chunk.message_id.is_empty()
-            || chunk.message_id.len() > MAX_KEY_ID_LEN
+        self.store_with_policy(chunk, &security::StoreCallerAuth::LegacyUnauth)
+            .await
+    }
+
+    pub async fn store_with_policy(
+        &self,
+        chunk: EncryptedChunk,
+        auth: &security::StoreCallerAuth,
+    ) -> Result<String, String> {
+        if !ChunkShard::is_valid_chunk_id(&chunk.recipient_id)
+            || !ChunkShard::is_valid_chunk_id(&chunk.message_id)
         {
             return Err("Invalid chunk identifier".into());
         }
         let chunk_size = chunk.ciphertext.len();
+        if security::is_public_directory_mailbox(&chunk.recipient_id)
+            && chunk_size > MAX_PEER_DIR_BYTES
+        {
+            return Err("Peer bundle exceeds directory limit".into());
+        }
         if !self.try_reserve_bytes(chunk_size) {
             return Err("Storage full".into());
         }
         let idx = Self::shard_idx(&chunk.recipient_id);
+        let priority = ChunkPriority::from_store(&chunk.recipient_id, auth);
         let res = {
             let mut shard = self.shards[idx].write().await;
-            let count = shard
-                .chunks
-                .get(&chunk.recipient_id)
-                .map(|v| v.len())
-                .unwrap_or(0);
-            if count >= MAX_CHUNKS_PER_RECIPIENT {
-                Err("Mailbox quota exceeded".into())
-            } else {
-                Ok(shard.push_chunk(chunk))
-            }
+            shard.push_with_policy(chunk, auth.sender_key(), priority)
         };
         match res {
-            Ok((msg_id, notifier)) => {
+            Ok((msg_id, notifier, extra_freed)) => {
+                if extra_freed > 0 {
+                    self.release_bytes(extra_freed);
+                }
                 if let Some(n) = notifier {
                     n.notify_waiters();
                 }
@@ -261,19 +427,26 @@ impl ShardedChunkStore {
         }
     }
 
-    /// Store multiple chunks while acquiring each touched shard's write lock once.
     pub async fn store_batch(
         &self,
         chunks: Vec<EncryptedChunk>,
+    ) -> Result<Vec<EncryptedChunk>, String> {
+        self.store_batch_with_policy(chunks, &security::StoreCallerAuth::LegacyUnauth)
+            .await
+    }
+
+    /// Store multiple chunks while acquiring each touched shard's write lock once.
+    pub async fn store_batch_with_policy(
+        &self,
+        chunks: Vec<EncryptedChunk>,
+        auth: &security::StoreCallerAuth,
     ) -> Result<Vec<EncryptedChunk>, String> {
         if chunks.is_empty() {
             return Ok(Vec::new());
         }
         if chunks.iter().any(|c| {
-            c.recipient_id.is_empty()
-                || c.recipient_id.len() > MAX_KEY_ID_LEN
-                || c.message_id.is_empty()
-                || c.message_id.len() > MAX_KEY_ID_LEN
+            !ChunkShard::is_valid_chunk_id(&c.recipient_id)
+                || !ChunkShard::is_valid_chunk_id(&c.message_id)
         }) {
             return Err("Invalid chunk identifier".into());
         }
@@ -289,29 +462,29 @@ impl ShardedChunkStore {
         }
 
         let mut stored = Vec::new();
-        let mut dropped_bytes = 0usize;
+        let mut released_bytes = 0usize;
         let mut notifiers: Vec<Arc<Notify>> = Vec::new();
         for (idx, bucket) in buckets {
             let mut shard = self.shards[idx].write().await;
             for chunk in bucket {
-                let count = shard
-                    .chunks
-                    .get(&chunk.recipient_id)
-                    .map(|v| v.len())
-                    .unwrap_or(0);
-                if count >= MAX_CHUNKS_PER_RECIPIENT {
-                    dropped_bytes += chunk.ciphertext.len();
-                    continue;
+                let chunk_len = chunk.ciphertext.len();
+                let priority = ChunkPriority::from_store(&chunk.recipient_id, auth);
+                match shard.push_with_policy(chunk.clone(), auth.sender_key(), priority) {
+                    Ok((_, notifier, extra_freed)) => {
+                        released_bytes += extra_freed;
+                        if let Some(n) = notifier {
+                            notifiers.push(n);
+                        }
+                        stored.push(chunk);
+                    }
+                    Err(_) => {
+                        released_bytes += chunk_len;
+                    }
                 }
-                let (_, notifier) = shard.push_chunk(chunk.clone());
-                if let Some(n) = notifier {
-                    notifiers.push(n);
-                }
-                stored.push(chunk);
             }
         }
-        if dropped_bytes > 0 {
-            self.release_bytes(dropped_bytes);
+        if released_bytes > 0 {
+            self.release_bytes(released_bytes);
         }
         for n in notifiers {
             n.notify_waiters();
@@ -399,50 +572,69 @@ impl ShardedChunkStore {
     pub async fn get_chunk(&self, recipient_id: &str, message_id: &str) -> Option<EncryptedChunk> {
         let idx = Self::shard_idx(recipient_id);
         let shard = self.shards[idx].read().await;
-        shard
-            .chunks
-            .get(recipient_id)
-            .and_then(|list| list.iter().find(|c| c.message_id == message_id).cloned())
+        shard.chunks.get(recipient_id).and_then(|list| {
+            list.iter()
+                .find(|e| e.chunk.message_id == message_id)
+                .map(|e| e.chunk.clone())
+        })
     }
 
     /// Idempotent store for HyperSwarm replication (same message_id allowed once).
     pub async fn store_replicate(&self, chunk: EncryptedChunk) -> Result<(), String> {
-        if chunk.recipient_id.is_empty()
-            || chunk.recipient_id.len() > MAX_KEY_ID_LEN
-            || chunk.message_id.is_empty()
-            || chunk.message_id.len() > MAX_KEY_ID_LEN
+        if !ChunkShard::is_valid_chunk_id(&chunk.recipient_id)
+            || !ChunkShard::is_valid_chunk_id(&chunk.message_id)
         {
             return Err("Invalid chunk identifier".into());
         }
         let idx = Self::shard_idx(&chunk.recipient_id);
         let chunk_size = chunk.ciphertext.len();
-        let notifier = {
+        if security::is_public_directory_mailbox(&chunk.recipient_id)
+            && chunk_size > MAX_PEER_DIR_BYTES
+        {
+            return Err("Peer bundle exceeds directory limit".into());
+        }
+        if !self.try_reserve_bytes(chunk_size) {
+            return Err("Storage full".into());
+        }
+        let priority = if security::is_contact_mailbox(&chunk.recipient_id) {
+            ChunkPriority::Contact
+        } else {
+            ChunkPriority::Cold
+        };
+        let res = {
             let mut shard = self.shards[idx].write().await;
-            let list_len = shard
-                .chunks
-                .get(&chunk.recipient_id)
-                .map(|list| list.len())
-                .unwrap_or(0);
             let already_present = shard
                 .chunks
                 .get(&chunk.recipient_id)
-                .map(|list| list.iter().any(|c| c.message_id == chunk.message_id))
+                .map(|list| list.iter().any(|e| e.chunk.message_id == chunk.message_id))
                 .unwrap_or(false);
             if already_present {
-                return Ok(());
+                Err(String::new())
+            } else {
+                shard
+                    .push_with_policy(chunk, "replicate", priority)
+                    .map(|(_, notifier, freed)| (notifier, freed))
             }
-            if list_len >= MAX_CHUNKS_PER_RECIPIENT {
-                return Err("Mailbox quota exceeded".into());
-            }
-            if !self.try_reserve_bytes(chunk_size) {
-                return Err("Storage full".into());
-            }
-            shard.push_chunk(chunk).1
         };
-        if let Some(n) = notifier {
-            n.notify_waiters();
+        match res {
+            Ok((notifier, extra_freed)) => {
+                if extra_freed > 0 {
+                    self.release_bytes(extra_freed);
+                }
+                if let Some(n) = notifier {
+                    n.notify_waiters();
+                }
+                Ok(())
+            }
+            Err(e) => {
+                self.release_bytes(chunk_size);
+                if e.is_empty() {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            }
         }
-        Ok(())
     }
 }
 
@@ -498,7 +690,28 @@ struct RelayHttpContext {
     http_client: reqwest::Client,
     discovery_cache: discovery::DiscoveryCache,
     rate_limiter: Arc<security::IpRateLimiter>,
+    trust_cache: Arc<security::OnChainTrustCache>,
     require_client_sig: bool,
+    pow_bits: u32,
+}
+
+#[derive(Clone, Default)]
+struct StoreForwardHeaders {
+    ts: String,
+    sig: String,
+    pow: Option<String>,
+}
+
+impl StoreForwardHeaders {
+    fn from_headers(headers: &HeaderMap) -> Option<Self> {
+        let ts = headers.get("x-tks-ts")?.to_str().ok()?.trim().to_string();
+        let sig = headers.get("x-tks-sig")?.to_str().ok()?.trim().to_string();
+        let pow = headers
+            .get("x-tks-pow")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.trim().to_string());
+        Some(Self { ts, sig, pow })
+    }
 }
 
 #[derive(Clone)]
@@ -572,9 +785,13 @@ async fn handle_request(
         );
         resp.headers_mut().insert(
             "Access-Control-Allow-Headers",
-            "Content-Type, X-TKS-Ts, X-TKS-Sig, X-TKS-Federated-Push-Key"
+            "Content-Type, X-TKS-Ts, X-TKS-Sig, X-TKS-Pow, X-TKS-Federated-Push-Key"
                 .parse()
                 .unwrap(),
+        );
+        resp.headers_mut().insert(
+            "Access-Control-Expose-Headers",
+            "X-TKS-Pow-Required-Bits".parse().unwrap(),
         );
         resp
     };
@@ -589,6 +806,21 @@ async fn handle_request(
                 )))
                 .unwrap(),
         )
+    };
+
+    let store_auth_err_resp = |err: security::StoreAuthError| -> Response<Full<Bytes>> {
+        let mut builder = Response::builder()
+            .status(err.status)
+            .header("Content-Type", "application/json");
+        if let Some(bits) = err.required_pow_bits {
+            builder = builder.header("X-TKS-Pow-Required-Bits", bits.to_string());
+        }
+        let body = serde_json::json!({
+            "error": err.message,
+            "required_pow_bits": err.required_pow_bits,
+        })
+        .to_string();
+        cors_headers(builder.body(Full::new(Bytes::from(body))).unwrap())
     };
 
     let method = req.method().clone();
@@ -649,9 +881,12 @@ async fn handle_request(
         http_client,
         discovery_cache,
         rate_limiter: _,
+        trust_cache,
         require_client_sig,
+        pow_bits,
     } = ctx.clone();
     let mesh_push = MeshPushContext::from_relay_ctx(&ctx);
+    let forward_store_hdrs = StoreForwardHeaders::from_headers(&auth_headers);
 
     // Route by path
     let response = match path.as_str() {
@@ -696,7 +931,9 @@ async fn handle_request(
             // Generic bincode endpoint (used by legacy clients)
             match bincode::deserialize::<RelayRequest>(&body_bytes) {
                 Ok(relay_req) => {
-                    let auth_err = match &relay_req {
+                    let mut store_auth = security::StoreCallerAuth::LegacyUnauth;
+                    let auth_err: Option<(StatusCode, &'static str, Option<u32>)> = match &relay_req
+                    {
                         RelayRequest::Fetch { recipient_id } => {
                             if security::is_probe_recipient(recipient_id) {
                                 return Ok(cors_headers(
@@ -717,6 +954,7 @@ async fn handle_request(
                                     require_client_sig,
                                 )
                                 .err()
+                                .map(|(s, m)| (s, m, None))
                             } else {
                                 None
                             }
@@ -729,6 +967,7 @@ async fn handle_request(
                                 require_client_sig,
                             )
                             .err()
+                            .map(|(s, m)| (s, m, None))
                         }
                         RelayRequest::Register { evm_address } => {
                             security::authorize_http_mailbox(
@@ -738,25 +977,81 @@ async fn handle_request(
                                 require_client_sig,
                             )
                             .err()
+                            .map(|(s, m)| (s, m, None))
                         }
                         RelayRequest::RpcProxy { .. } => Some((
                             StatusCode::FORBIDDEN,
                             "RpcProxy disabled for security",
+                            None,
                         )),
-                        RelayRequest::Store(_) => None,
+                        RelayRequest::Store(chunk) => {
+                            if !ChunkShard::is_valid_chunk_id(&chunk.recipient_id)
+                                || !ChunkShard::is_valid_chunk_id(&chunk.message_id)
+                            {
+                                Some((StatusCode::BAD_REQUEST, "Invalid chunk identifier", None))
+                            } else if security::is_public_directory_mailbox(&chunk.recipient_id)
+                                && chunk.ciphertext.len() > MAX_PEER_DIR_BYTES
+                            {
+                                Some((
+                                    StatusCode::PAYLOAD_TOO_LARGE,
+                                    "Peer bundle exceeds directory limit",
+                                    None,
+                                ))
+                            } else {
+                                let payload_sha =
+                                    security::single_payload_sha256(&chunk.ciphertext);
+                                let peer_dirs: [&str; 1] = [chunk.recipient_id.as_str()];
+                                let dir_slice: &[&str] =
+                                    if security::is_public_directory_mailbox(&chunk.recipient_id) {
+                                        &peer_dirs
+                                    } else {
+                                        &[]
+                                    };
+                                match security::authorize_store_request(
+                                    &chunk.recipient_id,
+                                    dir_slice,
+                                    &payload_sha,
+                                    &auth_headers,
+                                    require_client_sig,
+                                    pow_bits,
+                                    &http_client,
+                                    chain_rpc_url.as_deref(),
+                                    &trust_cache,
+                                )
+                                .await
+                                {
+                                    Ok(caller) => {
+                                        store_auth = caller;
+                                        None
+                                    }
+                                    Err(err) => {
+                                        Some((err.status, err.message, err.required_pow_bits))
+                                    }
+                                }
+                            }
+                        }
                     };
-                    if let Some((status, msg)) = auth_err {
+                    if let Some((status, msg, req_bits)) = auth_err {
                         let resp = RelayResponse::Error(msg.to_string());
+                        let mut builder = Response::builder().status(status);
+                        if let Some(bits) = req_bits {
+                            builder = builder.header("X-TKS-Pow-Required-Bits", bits.to_string());
+                        }
                         return Ok(cors_headers(
-                            Response::builder()
-                                .status(status)
+                            builder
                                 .body(Full::new(Bytes::from(
                                     bincode::serialize(&resp).unwrap_or_default(),
                                 )))
                                 .unwrap(),
                         ));
                     }
-                    let resp = process_relay_request(relay_req, &ctx, true).await;
+                    let resp = process_relay_request_with_auth(
+                        relay_req,
+                        &ctx,
+                        true,
+                        &store_auth,
+                    )
+                    .await;
                     bincode::serialize(&resp).unwrap_or_default()
                 }
                 Err(e) => {
@@ -769,21 +1064,59 @@ async fn handle_request(
             // JSON endpoint for storing a single chunk (direct JSON response, zero bincode roundtrip).
             match serde_json::from_slice::<EncryptedChunk>(&body_bytes) {
                 Ok(chunk) => {
-                    let resp = process_relay_request(
+                    if !ChunkShard::is_valid_chunk_id(&chunk.recipient_id)
+                        || !ChunkShard::is_valid_chunk_id(&chunk.message_id)
+                    {
+                        return Ok(json_err(StatusCode::BAD_REQUEST, "Invalid chunk identifier"));
+                    }
+                    if security::is_public_directory_mailbox(&chunk.recipient_id)
+                        && chunk.ciphertext.len() > MAX_PEER_DIR_BYTES
+                    {
+                        return Ok(json_err(
+                            StatusCode::PAYLOAD_TOO_LARGE,
+                            "Peer bundle exceeds directory limit",
+                        ));
+                    }
+                    let payload_sha = security::single_payload_sha256(&chunk.ciphertext);
+                    let peer_dirs = [chunk.recipient_id.as_str()];
+                    let dir_slice: &[&str] =
+                        if security::is_public_directory_mailbox(&chunk.recipient_id) {
+                            &peer_dirs
+                        } else {
+                            &[]
+                        };
+                    let store_auth = match security::authorize_store_request(
+                        &chunk.recipient_id,
+                        dir_slice,
+                        &payload_sha,
+                        &auth_headers,
+                        require_client_sig,
+                        pow_bits,
+                        &http_client,
+                        chain_rpc_url.as_deref(),
+                        &trust_cache,
+                    )
+                    .await
+                    {
+                        Ok(caller) => caller,
+                        Err(err) => return Ok(store_auth_err_resp(err)),
+                    };
+
+                    let resp = process_relay_request_with_auth(
                         RelayRequest::Store(chunk.clone()),
                         &ctx,
                         false,
+                        &store_auth,
                     )
                     .await;
                     if matches!(resp, RelayResponse::Stored { .. }) {
-                        mesh_replicate(
-                            chunk,
-                            mesh_push,
-                        );
+                        mesh_replicate(chunk, mesh_push, forward_store_hdrs);
                     }
                     serde_json::to_vec(&resp).unwrap_or_default()
                 }
-                Err(e) => serde_json::to_vec(&serde_json::json!({"error": e.to_string()})).unwrap_or_default(),
+                Err(e) => {
+                    serde_json::to_vec(&serde_json::json!({"error": e.to_string()})).unwrap_or_default()
+                }
             }
         }
         "/store/batch" => {
@@ -793,7 +1126,49 @@ async fn handle_request(
                     let chunks = match payload {
                         BatchStorePayload::Array(c) | BatchStorePayload::Wrapped { chunks: c } => c,
                     };
-                    match store.store_batch(chunks).await {
+                    if chunks.iter().any(|c| {
+                        !ChunkShard::is_valid_chunk_id(&c.recipient_id)
+                            || !ChunkShard::is_valid_chunk_id(&c.message_id)
+                    }) {
+                        return Ok(json_err(StatusCode::BAD_REQUEST, "Invalid chunk identifier"));
+                    }
+                    if chunks.iter().any(|c| {
+                        security::is_public_directory_mailbox(&c.recipient_id)
+                            && c.ciphertext.len() > MAX_PEER_DIR_BYTES
+                    }) {
+                        return Ok(json_err(
+                            StatusCode::PAYLOAD_TOO_LARGE,
+                            "Peer bundle exceeds directory limit",
+                        ));
+                    }
+                    let peer_dir_targets: Vec<&str> = chunks
+                        .iter()
+                        .filter(|c| security::is_public_directory_mailbox(&c.recipient_id))
+                        .map(|c| c.recipient_id.as_str())
+                        .collect();
+                    let payload_sha = security::batch_payload_sha256(
+                        chunks
+                            .iter()
+                            .map(|c| (c.recipient_id.as_str(), c.ciphertext.as_slice())),
+                    );
+                    let store_auth = match security::authorize_store_request(
+                        "batch",
+                        &peer_dir_targets,
+                        &payload_sha,
+                        &auth_headers,
+                        require_client_sig,
+                        pow_bits,
+                        &http_client,
+                        chain_rpc_url.as_deref(),
+                        &trust_cache,
+                    )
+                    .await
+                    {
+                        Ok(caller) => caller,
+                        Err(err) => return Ok(store_auth_err_resp(err)),
+                    };
+
+                    match store.store_batch_with_policy(chunks, &store_auth).await {
                         Ok(stored_chunks) => {
                             let message_ids: Vec<String> = stored_chunks
                                 .iter()
@@ -804,7 +1179,7 @@ async fn handle_request(
                                     h.record_ingress();
                                 }
                             }
-                            spawn_batch_side_effects(stored_chunks, &ctx);
+                            spawn_batch_side_effects(stored_chunks, &ctx, forward_store_hdrs);
                             serde_json::to_vec(&serde_json::json!({
                                 "stored": message_ids.len(),
                                 "message_ids": message_ids,
@@ -815,7 +1190,9 @@ async fn handle_request(
                             .unwrap_or_default(),
                     }
                 }
-                Err(e) => serde_json::to_vec(&serde_json::json!({"error": e.to_string()})).unwrap_or_default(),
+                Err(e) => {
+                    serde_json::to_vec(&serde_json::json!({"error": e.to_string()})).unwrap_or_default()
+                }
             }
         }
         "/fetch" => {
@@ -887,10 +1264,11 @@ async fn handle_request(
                         .as_array()
                         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
                         .unwrap_or_default();
-                    let resp = process_relay_request(
+                    let resp = process_relay_request_with_auth(
                         RelayRequest::Ack { recipient_id, message_ids },
                         &ctx,
                         false,
+                        &security::StoreCallerAuth::LegacyUnauth,
                     )
                     .await;
                     serde_json::to_vec(&resp).unwrap_or_default()
@@ -910,10 +1288,11 @@ async fn handle_request(
                     ) {
                         return Ok(json_err(status, msg));
                     }
-                    let resp = process_relay_request(
+                    let resp = process_relay_request_with_auth(
                         RelayRequest::Register { evm_address },
                         &ctx,
                         false,
+                        &security::StoreCallerAuth::LegacyUnauth,
                     )
                     .await;
                     serde_json::to_vec(&resp).unwrap_or_default()
@@ -980,8 +1359,27 @@ async fn handle_request(
     Ok(cors_headers(resp))
 }
 
+fn apply_store_forward_headers(
+    mut req: reqwest::RequestBuilder,
+    hdrs: Option<&StoreForwardHeaders>,
+) -> reqwest::RequestBuilder {
+    if let Some(h) = hdrs {
+        req = req
+            .header("X-TKS-Ts", h.ts.as_str())
+            .header("X-TKS-Sig", h.sig.as_str());
+        if let Some(ref pow) = h.pow {
+            req = req.header("X-TKS-Pow", pow.as_str());
+        }
+    }
+    req
+}
+
 /// Best-effort copy to other known relays (chain + gossip) so one host down ≠ lost messages.
-fn mesh_replicate(chunk: EncryptedChunk, ctx: MeshPushContext) {
+fn mesh_replicate(
+    chunk: EncryptedChunk,
+    ctx: MeshPushContext,
+    forward_hdrs: Option<StoreForwardHeaders>,
+) {
     if !ctx.has_peer_mesh() {
         return;
     }
@@ -1009,13 +1407,64 @@ fn mesh_replicate(chunk: EncryptedChunk, ctx: MeshPushContext) {
             let url = format!("{}/store", relay.http_base.trim_end_matches('/'));
             let client = ctx.http_client.clone();
             let payload = chunk.clone();
+            let hdrs = forward_hdrs.clone();
             Some(async move {
-                let _ = client
-                    .post(url)
-                    .json(&payload)
-                    .timeout(Duration::from_secs(2))
-                    .send()
-                    .await;
+                let req = apply_store_forward_headers(
+                    client
+                        .post(url)
+                        .json(&payload)
+                        .timeout(Duration::from_secs(2)),
+                    hdrs.as_ref(),
+                );
+                let _ = req.send().await;
+            })
+        });
+        join_all(futures).await;
+    });
+}
+
+fn mesh_replicate_batch(
+    chunks: Vec<EncryptedChunk>,
+    ctx: MeshPushContext,
+    forward_hdrs: Option<StoreForwardHeaders>,
+) {
+    if chunks.is_empty() || !ctx.has_peer_mesh() {
+        return;
+    }
+    tokio::spawn(async move {
+        let swarm = ctx.hyperswarm.as_ref().map(|h| h.directory.clone());
+        let peer_id = swarm.as_ref().map(|s| s.local_peer_id().to_string());
+        let disc = discovery::build_discovery_cached(
+            ctx.self_http.clone(),
+            None,
+            peer_id,
+            ctx.chain_rpc_url.clone(),
+            swarm,
+            None,
+            &ctx.http_client,
+            &ctx.discovery_cache,
+        )
+        .await;
+        let futures = disc.relays.iter().take(8).filter_map(|relay| {
+            if relay.http_base.is_empty()
+                || Some(relay.http_base.as_str()) == ctx.self_http.as_deref()
+                || !discovery::is_safe_mesh_target(&relay.http_base)
+            {
+                return None;
+            }
+            let url = format!("{}/store/batch", relay.http_base.trim_end_matches('/'));
+            let client = ctx.http_client.clone();
+            let payload = chunks.clone();
+            let hdrs = forward_hdrs.clone();
+            Some(async move {
+                let req = apply_store_forward_headers(
+                    client
+                        .post(url)
+                        .json(&payload)
+                        .timeout(Duration::from_secs(3)),
+                    hdrs.as_ref(),
+                );
+                let _ = req.send().await;
             })
         });
         join_all(futures).await;
@@ -1087,7 +1536,11 @@ fn mesh_signal_push(
     });
 }
 
-fn spawn_batch_side_effects(chunks: Vec<EncryptedChunk>, ctx: &RelayHttpContext) {
+fn spawn_batch_side_effects(
+    chunks: Vec<EncryptedChunk>,
+    ctx: &RelayHttpContext,
+    forward_hdrs: Option<StoreForwardHeaders>,
+) {
     let mesh_ctx = MeshPushContext::from_relay_ctx(ctx);
     let need_side_effects = ctx.shard_ingest_url.is_some()
         || ctx.signal_hub.is_some()
@@ -1102,6 +1555,9 @@ fn spawn_batch_side_effects(chunks: Vec<EncryptedChunk>, ctx: &RelayHttpContext)
     tokio::spawn(async move {
         if let Some(ref url) = ctx.shard_ingest_url {
             forward_shard_ingest_batch(&ctx.http_client, url, &chunks).await;
+        }
+        if mesh_ctx.has_peer_mesh() {
+            mesh_replicate_batch(chunks.clone(), mesh_ctx.clone(), forward_hdrs);
         }
         for chunk in chunks {
             deliver_signal_push(
@@ -1125,7 +1581,6 @@ fn spawn_batch_side_effects(chunks: Vec<EncryptedChunk>, ctx: &RelayHttpContext)
                     chunk.ciphertext.clone(),
                     mesh_ctx.clone(),
                 );
-                mesh_replicate(chunk, mesh_ctx.clone());
             }
         }
     });
@@ -1333,15 +1788,16 @@ async fn forward_shard_ingest_batch(
     }
 }
 
-async fn process_relay_request(
+async fn process_relay_request_with_auth(
     req: RelayRequest,
     ctx: &RelayHttpContext,
     mesh_push_on_store: bool,
+    store_auth: &security::StoreCallerAuth,
 ) -> RelayResponse {
     match req {
         RelayRequest::Store(chunk) => {
             let recipient = chunk.recipient_id.clone();
-            match ctx.store.store(chunk.clone()).await {
+            match ctx.store.store_with_policy(chunk.clone(), store_auth).await {
                 Ok(msg_id) => {
                     if let Some(ref h) = ctx.hybrid {
                         h.record_ingress();
@@ -1612,9 +2068,14 @@ pub async fn run_relay_server_with(
     }
 
     let rate_limiter = Arc::new(security::IpRateLimiter::from_env());
+    let trust_cache = Arc::new(security::OnChainTrustCache::new());
     let require_client_sig = security::require_client_sig_enabled();
+    let pow_bits = security::configured_pow_bits();
     if require_client_sig {
-        info!("   Client mailbox auth: required (ECDSA signature on /fetch, /ack, /register, /ws)");
+        info!(
+            "   Client mailbox auth: required (ECDSA /store + /fetch + /ack + /register + /ws; PoW={} bits)",
+            pow_bits
+        );
     }
 
     let ctx = RelayHttpContext {
@@ -1632,7 +2093,9 @@ pub async fn run_relay_server_with(
         http_client,
         discovery_cache,
         rate_limiter,
+        trust_cache,
         require_client_sig,
+        pow_bits,
     };
 
     serve_relay_http_listener(listener, ctx).await;
@@ -1757,7 +2220,7 @@ mod tests {
         }
 
         let (alice_sk, _alice_evm, alice_sealed) = mk_wallet(1);
-        let (bob_sk, _bob_evm, bob_sealed) = mk_wallet(2);
+        let (bob_sk, bob_evm, bob_sealed) = mk_wallet(2);
         let (carol_sk, carol_evm, carol_sealed) = mk_wallet(3);
 
         let signal_hub = signal::SignalHub::new();
@@ -1786,7 +2249,9 @@ mod tests {
             http_client: http_client.clone(),
             discovery_cache: discovery::DiscoveryCache::new(Duration::from_secs(15)),
             rate_limiter: Arc::new(security::IpRateLimiter::new(500)),
+            trust_cache: Arc::new(security::OnChainTrustCache::new()),
             require_client_sig: true,
+            pow_bits: 8,
         };
         let relay_task = tokio::spawn(async move {
             serve_relay_http_listener(relay_listener, ctx).await;
@@ -1824,10 +2289,24 @@ mod tests {
         .unwrap();
         assert_eq!(resp_bob.status().as_u16(), 101);
 
-        // 3) POST /store to relay -> should store AND push instant WS frame to alice_sealed.
+        // 3) POST /store without signature rejected (401); signed + PoW succeeds AND pushes WS frame.
         let chunk = test_chunk(&alice_sealed, "push_msg_1", 12, u64::MAX);
+        let unauth_store = http_client
+            .post(format!("http://{relay_addr}/store"))
+            .json(&chunk)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth_store.status().as_u16(), 401);
+
+        let chunk_sha = security::single_payload_sha256(&chunk.ciphertext);
+        let store_sig = security::sign_store_for_test(&bob_sk, &alice_sealed, &chunk_sha, ts);
+        let store_pow = security::solve_pow_stamp(&bob_evm, &alice_sealed, &chunk_sha, ts, 8);
         let store_res: serde_json::Value = http_client
             .post(format!("http://{relay_addr}/store"))
+            .header("X-TKS-Ts", ts.to_string())
+            .header("X-TKS-Sig", store_sig)
+            .header("X-TKS-Pow", store_pow.to_string())
             .json(&chunk)
             .send()
             .await
@@ -1888,12 +2367,23 @@ mod tests {
         .await;
 
         // 5) POST /store/batch + signed /fetch + unsigned/wrong /ack rejected + signed /ack succeeds
+        let batch_items = vec![
+            test_chunk(&carol_sealed, "batch_1", 10, u64::MAX),
+            test_chunk(&carol_sealed, "batch_2", 14, u64::MAX),
+        ];
+        let batch_sha = security::batch_payload_sha256(
+            batch_items
+                .iter()
+                .map(|c| (c.recipient_id.as_str(), c.ciphertext.as_slice())),
+        );
+        let batch_sig = security::sign_store_for_test(&bob_sk, "batch", &batch_sha, ts);
+        let batch_pow = security::solve_pow_stamp(&bob_evm, "batch", &batch_sha, ts, 8);
         let batch_resp: serde_json::Value = http_client
             .post(format!("http://{relay_addr}/store/batch"))
-            .json(&vec![
-                test_chunk(&carol_sealed, "batch_1", 10, u64::MAX),
-                test_chunk(&carol_sealed, "batch_2", 14, u64::MAX),
-            ])
+            .header("X-TKS-Ts", ts.to_string())
+            .header("X-TKS-Sig", batch_sig)
+            .header("X-TKS-Pow", batch_pow.to_string())
+            .json(&batch_items)
             .send()
             .await
             .unwrap()
@@ -1939,12 +2429,35 @@ mod tests {
         assert!(probe_res["Chunks"].as_array().unwrap().is_empty());
 
         let carol_dir = security::peer_dir_mailbox_for_evm(&carol_evm);
-        let _ = http_client
+        let dir_chunk = test_chunk(&carol_dir, "dir_1", 8, u64::MAX);
+        let dir_sha = security::single_payload_sha256(&dir_chunk.ciphertext);
+        // Non-owner (bob) CANNOT write to carol's peer-dir-v1:* mailbox (401)
+        let bob_dir_sig = security::sign_store_for_test(&bob_sk, &carol_dir, &dir_sha, ts);
+        let bob_dir_pow = security::solve_pow_stamp(&bob_evm, &carol_dir, &dir_sha, ts, 8);
+        let forged_dir_store = http_client
             .post(format!("http://{relay_addr}/store"))
-            .json(&test_chunk(&carol_dir, "dir_1", 8, u64::MAX))
+            .header("X-TKS-Ts", ts.to_string())
+            .header("X-TKS-Sig", bob_dir_sig)
+            .header("X-TKS-Pow", bob_dir_pow.to_string())
+            .json(&dir_chunk)
             .send()
             .await
             .unwrap();
+        assert_eq!(forged_dir_store.status().as_u16(), 401);
+
+        // Owner (carol) writes to her peer-dir-v1:* mailbox and single-slot replaces older entry
+        let carol_dir_sig = security::sign_store_for_test(&carol_sk, &carol_dir, &dir_sha, ts);
+        let carol_dir_pow = security::solve_pow_stamp(&carol_evm, &carol_dir, &dir_sha, ts, 8);
+        let ok_dir = http_client
+            .post(format!("http://{relay_addr}/store"))
+            .header("X-TKS-Ts", ts.to_string())
+            .header("X-TKS-Sig", carol_dir_sig)
+            .header("X-TKS-Pow", carol_dir_pow.to_string())
+            .json(&dir_chunk)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(ok_dir.status().as_u16(), 200);
         let dir_fetch: serde_json::Value = http_client
             .post(format!("http://{relay_addr}/fetch"))
             .json(&serde_json::json!({"recipient_id": carol_dir}))
@@ -1998,6 +2511,100 @@ mod tests {
 
         sig_task.abort();
         relay_task.abort();
+    }
+
+    #[tokio::test]
+    async fn layered_quotas_cold_eviction_and_peer_dir_single_slot() {
+        let store = ShardedChunkStore::new(100 * 1024 * 1024);
+        let victim = "victim_sealed";
+        let sender_a = security::StoreCallerAuth::Signed {
+            sender_evm: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            ts_ms: 1,
+            on_chain_trusted: true,
+            pow_verified: false,
+        };
+        let sender_b = security::StoreCallerAuth::Signed {
+            sender_evm: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+            ts_ms: 1,
+            on_chain_trusted: false,
+            pow_verified: true,
+        };
+
+        // 1) Cold flood stops at MAX_COLD_CHUNKS_PER_RECIPIENT via FIFO ring-buffer eviction.
+        for i in 0..(MAX_COLD_CHUNKS_PER_RECIPIENT + 25) {
+            store
+                .store_with_policy(
+                    test_chunk(victim, &format!("cold_{i}"), 16, u64::MAX),
+                    &security::StoreCallerAuth::LegacyUnauth,
+                )
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            store.fetch(victim).await.len(),
+            MAX_COLD_CHUNKS_PER_RECIPIENT
+        );
+
+        // 2) Verified sender quota capped per sender (MAX_CHUNKS_PER_SENDER), without blocking sender_b.
+        for i in 0..MAX_CHUNKS_PER_SENDER {
+            store
+                .store_with_policy(
+                    test_chunk(victim, &format!("a_{i}"), 32, u64::MAX),
+                    &sender_a,
+                )
+                .await
+                .unwrap();
+        }
+        let sender_cap = store
+            .store_with_policy(test_chunk(victim, "a_over", 32, u64::MAX), &sender_a)
+            .await
+            .unwrap_err();
+        assert_eq!(sender_cap, "Sender quota exceeded");
+        store
+            .store_with_policy(test_chunk(victim, "b_1", 32, u64::MAX), &sender_b)
+            .await
+            .unwrap();
+
+        // 3) Duplicate message_id from same sender replaces idempotently without growing count.
+        let before = store.fetch(victim).await.len();
+        store
+            .store_with_policy(test_chunk(victim, "b_1", 64, u64::MAX), &sender_b)
+            .await
+            .unwrap();
+        assert_eq!(store.fetch(victim).await.len(), before);
+
+        // 4) Contact mailbox (`contact-v1:*`) accepts isolated capacity above per-sender request cap.
+        let contact_box =
+            security::contact_mailbox_for_evm("0xcccccccccccccccccccccccccccccccccccccccc");
+        for i in 0..(MAX_CHUNKS_PER_SENDER + 5) {
+            store
+                .store_with_policy(
+                    test_chunk(&contact_box, &format!("c_{i}"), 16, u64::MAX),
+                    &sender_a,
+                )
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            store.fetch(&contact_box).await.len(),
+            MAX_CHUNKS_PER_SENDER + 5
+        );
+
+        // 5) peer-dir-v1:* keeps single newest slot and rejects stale stored_at overwrites.
+        let dir_box =
+            security::peer_dir_mailbox_for_evm("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let mut c1 = test_chunk(&dir_box, "dir_a", 20, u64::MAX);
+        c1.stored_at = 200;
+        let mut c2 = test_chunk(&dir_box, "dir_b", 30, u64::MAX);
+        c2.stored_at = 250;
+        let mut stale = test_chunk(&dir_box, "dir_old", 10, u64::MAX);
+        stale.stored_at = 150;
+        store.store_with_policy(c1, &sender_a).await.unwrap();
+        store.store_with_policy(c2, &sender_a).await.unwrap();
+        assert!(store.store_with_policy(stale, &sender_a).await.is_err());
+        let entries = store.fetch(&dir_box).await;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].message_id, "dir_b");
     }
 
     #[test]

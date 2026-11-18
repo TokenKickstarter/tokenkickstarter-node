@@ -8,7 +8,7 @@ x-tks-common: &tks-common
     context: .
     dockerfile: Dockerfile.tks-release
     args:
-      TKS_NODE_VERSION: ${TKS_NODE_VERSION:-v0.1.28}
+      TKS_NODE_VERSION: ${TKS_NODE_VERSION:-v0.1.29}
   restart: unless-stopped
   user: "10010:10010"
   cap_drop:
@@ -31,7 +31,7 @@ x-cipher-cli-common: &cipher-cli-common
     context: .
     dockerfile: Dockerfile.cipher-cli
     args:
-      CIPHER_CLI_VERSION: ${CIPHER_CLI_VERSION:-v0.2.6}
+      CIPHER_CLI_VERSION: ${CIPHER_CLI_VERSION:-v0.2.7}
   restart: unless-stopped
   user: "1001:1001"
   read_only: true
@@ -71,6 +71,7 @@ services:
       CIPHER_BIND_ADDR: "0.0.0.0"
       CIPHER_ALLOW_PRIVATE_PEERS: "0"
       CIPHER_REQUIRE_CLIENT_SIG: ${CIPHER_REQUIRE_CLIENT_SIG:-1}
+      CIPHER_POW_BITS: ${CIPHER_POW_BITS:-18}
       CIPHER_RATE_LIMIT_PER_MIN: ${CIPHER_RATE_LIMIT_PER_MIN:-1200}
       CIPHER_FEDERATED_PUSH_KEY: ${CIPHER_FEDERATED_PUSH_KEY:?Set CIPHER_FEDERATED_PUSH_KEY in .env}
       CIPHER_SHARD_INGEST_KEY: ${CIPHER_SHARD_INGEST_KEY:?Set CIPHER_SHARD_INGEST_KEY in .env}

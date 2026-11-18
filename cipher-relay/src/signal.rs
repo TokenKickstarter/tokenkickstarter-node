@@ -72,7 +72,7 @@ pub(crate) fn is_valid_signal_addr(addr: &str) -> bool {
         && addr.len() <= 128
         && addr
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b':'))
 }
 
 const QUEUE_TTL_MS: u64 = 5 * 60 * 1000;
