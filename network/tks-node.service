@@ -15,8 +15,6 @@ ExecStart=/opt/tks/tks-chain-node \
     --base-path /var/lib/tks \
     --port 30333 \
     --rpc-port 9944 \
-    --rpc-external \
-    --rpc-cors all \
     --name "${TKS_NODE_NAME}" \
     --log info
 

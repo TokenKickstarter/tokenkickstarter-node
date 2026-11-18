@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
-use http_body_util::{BodyExt, Full};
+use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -19,7 +19,54 @@ use hyper_tungstenite::tungstenite::Message;
 use hyper_tungstenite::WebSocketStream;
 use hyper_util::rt::TokioIo;
 use log::{debug, info, warn};
+use std::net::{IpAddr, Ipv4Addr};
 use tokio::sync::{mpsc, RwLock};
+
+const MAX_SIGNAL_PUSH_BYTES: usize = 1024 * 1024;
+const MAX_WS_TEXT_BYTES: usize = 256 * 1024;
+
+pub(crate) enum BodyReadError {
+    TooLarge,
+    InvalidBody,
+}
+
+pub(crate) async fn collect_bounded_body(
+    body: Incoming,
+    max_bytes: usize,
+) -> Result<Bytes, BodyReadError> {
+    Limited::new(body, max_bytes)
+        .collect()
+        .await
+        .map(|c| c.to_bytes())
+        .map_err(|e| {
+            if e.is::<LengthLimitError>() {
+                BodyReadError::TooLarge
+            } else {
+                BodyReadError::InvalidBody
+            }
+        })
+}
+
+pub(crate) fn resolve_bind_ip() -> IpAddr {
+    match std::env::var("CIPHER_BIND_ADDR") {
+        Ok(raw) if !raw.trim().is_empty() => match raw.trim().parse::<IpAddr>() {
+            Ok(ip) => ip,
+            Err(e) => {
+                warn!("Invalid CIPHER_BIND_ADDR '{raw}' ({e}); defaulting to 127.0.0.1");
+                IpAddr::V4(Ipv4Addr::LOCALHOST)
+            }
+        },
+        _ => IpAddr::V4(Ipv4Addr::LOCALHOST),
+    }
+}
+
+pub(crate) fn is_valid_signal_addr(addr: &str) -> bool {
+    !addr.is_empty()
+        && addr.len() <= 128
+        && addr
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+}
 
 const QUEUE_TTL_MS: u64 = 5 * 60 * 1000;
 const MAX_QUEUE: usize = 50;
@@ -158,9 +205,10 @@ pub async fn run_signal_server(
     port: u16,
     hub: Arc<SignalHub>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let addr: SocketAddr = format!("0.0.0.0:{port}").parse()?;
+    let bind_ip = resolve_bind_ip();
+    let addr = SocketAddr::new(bind_ip, port);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    info!("⚡ Embedded Cipher signal on http://0.0.0.0:{port} (/ws, /internal/push)");
+    info!("⚡ Embedded Cipher signal on http://{addr} (/ws, /internal/push)");
     serve_signal_listener(listener, hub).await;
     Ok(())
 }
@@ -215,12 +263,12 @@ pub(crate) fn try_upgrade_ws(
                 }
             })
         })
-        .filter(|a| !a.is_empty());
+        .filter(|a| is_valid_signal_addr(a));
 
     let Some(addr) = addr else {
         return Ok(Response::builder()
             .status(StatusCode::BAD_REQUEST)
-            .body(Full::new(Bytes::from("Missing addr parameter")))
+            .body(Full::new(Bytes::from("Missing or invalid addr parameter")))
             .unwrap());
     };
 
@@ -265,15 +313,25 @@ async fn handle_signal_http(
     }
 
     if req.method() == Method::POST && path == "/internal/push" {
-        if !remote.ip().is_loopback() {
+        if !remote.ip().is_loopback()
+            || req.headers().contains_key("x-forwarded-for")
+            || req.headers().contains_key("x-real-ip")
+            || req.headers().contains_key("forwarded")
+        {
             return Ok(Response::builder()
                 .status(StatusCode::FORBIDDEN)
                 .body(Full::new(Bytes::from("Forbidden")))
                 .unwrap());
         }
-        let body = match req.collect().await {
-            Ok(collected) => collected.to_bytes(),
-            Err(_) => {
+        let body = match collect_bounded_body(req.into_body(), MAX_SIGNAL_PUSH_BYTES).await {
+            Ok(collected) => collected,
+            Err(BodyReadError::TooLarge) => {
+                return Ok(Response::builder()
+                    .status(StatusCode::PAYLOAD_TOO_LARGE)
+                    .body(Full::new(Bytes::from("Payload too large")))
+                    .unwrap());
+            }
+            Err(BodyReadError::InvalidBody) => {
                 return Ok(Response::builder()
                     .status(StatusCode::BAD_REQUEST)
                     .body(Full::new(Bytes::from("Bad body")))
@@ -375,6 +433,9 @@ async fn run_ws_session(
 
 /// Returns optional JSON text to send back to the client.
 async fn handle_ws_text(from_addr: &str, text: &str, hub: &SignalHub) -> Option<String> {
+    if text.len() > MAX_WS_TEXT_BYTES {
+        return Some(r#"{"error":"Message too large"}"#.to_string());
+    }
     let data: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(_) => return Some(r#"{"error":"Invalid message format"}"#.to_string()),
@@ -390,8 +451,8 @@ async fn handle_ws_text(from_addr: &str, text: &str, hub: &SignalHub) -> Option<
         .unwrap_or("")
         .to_lowercase();
     let payload = data.get("payload");
-    if recipient.is_empty() || payload.is_none() {
-        return Some(r#"{"error":"Missing to/payload fields"}"#.to_string());
+    if !is_valid_signal_addr(&recipient) || payload.is_none() {
+        return Some(r#"{"error":"Missing or invalid to/payload fields"}"#.to_string());
     }
 
     let signal_payload = serde_json::json!({

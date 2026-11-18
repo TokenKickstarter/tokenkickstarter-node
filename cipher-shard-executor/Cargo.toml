@@ -1,6 +1,6 @@
 [package]
 name = "cipher-shard-executor"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Cipher HyperSwarm shard executor — batch messages, DA blobs, L1 anchor payloads (M2)"
 

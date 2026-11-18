@@ -9,35 +9,35 @@ REPO="${TKS_GITHUB_REPO:-TokenKickstarter/tokenkickstarter-node}"
 ARCH="${TKS_LINUX_ARCH:-x86_64}"
 
 TAR="tks-chain-node-linux-${ARCH}-${VERSION}.tar.gz"
+case "$ARCH" in
+  x86_64) SUMS_NAME="tks-chain-node-${VERSION}-linux-amd64" ;;
+  arm64|aarch64) SUMS_NAME="tks-chain-node-${VERSION}-linux-arm64" ;;
+  *) SUMS_NAME="" ;;
+esac
 BASE="https://github.com/${REPO}/releases/download/${VERSION}"
 WORKDIR="$(mktemp -d /tmp/tks-release-XXXXXX)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-echo ">> Download ${BASE}/${TAR}"
-curl -fsSL -o "${WORKDIR}/${TAR}" "${BASE}/${TAR}"
+# Prefer the standalone release binary verified by SHA256SUMS.txt; fall back to tarball.
+BIN=""
+if [[ -n "$SUMS_NAME" ]] && curl -fsSL -o "${WORKDIR}/${SUMS_NAME}" "${BASE}/${SUMS_NAME}" 2>/dev/null; then
+  BIN="${WORKDIR}/${SUMS_NAME}"
+  echo ">> Downloaded ${BASE}/${SUMS_NAME}"
+else
+  echo ">> Download ${BASE}/${TAR}"
+  curl -fsSL -o "${WORKDIR}/${TAR}" "${BASE}/${TAR}"
+  echo ">> Unpack binary"
+  tar -xzf "${WORKDIR}/${TAR}" -C "$WORKDIR"
+  BIN="$WORKDIR/tks-chain-node-linux-${ARCH}"
+fi
 
-echo ">> Install binary"
-tar -xzf "${WORKDIR}/${TAR}" -C "$WORKDIR"
-BIN="$WORKDIR/tks-chain-node-linux-${ARCH}"
-
-# Release SHA256SUMS lists unpacked binary names (e.g. tks-chain-node-v0.1.21-linux-amd64).
 if curl -fsSL -o "${WORKDIR}/SHA256SUMS.txt" "${BASE}/SHA256SUMS.txt" 2>/dev/null; then
-  case "$ARCH" in
-    x86_64) SUMS_NAME="tks-chain-node-${VERSION}-linux-amd64" ;;
-    arm64|aarch64) SUMS_NAME="tks-chain-node-${VERSION}-linux-arm64" ;;
-    *) SUMS_NAME="" ;;
-  esac
   EXPECTED=""
-  for candidate in \
-    "tks-chain-node-${VERSION}-linux-amd64" \
-    "tks-chain-node-linux-${ARCH}" \
-    "tks-chain-node-${VERSION}-linux-arm64"; do
-    line="$(grep -E " ${candidate}$" "${WORKDIR}/SHA256SUMS.txt" 2>/dev/null | head -1 || true)"
-    if [[ -n "$line" ]]; then
-      EXPECTED="${line%% *}"
-      break
-    fi
-  done
+  bin_base="$(basename "$BIN")"
+  line="$(grep -E " ${bin_base}$" "${WORKDIR}/SHA256SUMS.txt" 2>/dev/null | head -1 || true)"
+  if [[ -n "$line" ]]; then
+    EXPECTED="${line%% *}"
+  fi
   if [[ -n "$EXPECTED" ]]; then
     ACTUAL="$(sha256sum "$BIN" | awk '{print $1}')"
     if [[ "$ACTUAL" != "$EXPECTED" ]]; then
@@ -46,7 +46,7 @@ if curl -fsSL -o "${WORKDIR}/SHA256SUMS.txt" "${BASE}/SHA256SUMS.txt" 2>/dev/nul
     fi
     echo ">> SHA256 OK ($BIN)"
   else
-    echo ">> WARN: no SHA256SUMS entry for ${SUMS_NAME:-$ARCH}; skipping checksum"
+    echo ">> WARN: no SHA256SUMS entry for ${bin_base}; skipping checksum"
   fi
 else
   echo ">> WARN: no SHA256SUMS.txt on release; skipping checksum"

@@ -21,8 +21,10 @@ use std::time::Duration;
 use bytes::Bytes;
 use cipher_hybrid::HybridController;
 use futures_util::future::join_all;
-use http_body_util::{BodyExt, Full};
+use http_body_util::Full;
 use hyper::header::HeaderMap;
+
+const MAX_RELAY_BODY_BYTES: usize = 16 * 1024 * 1024;
 use hyper::service::service_fn;
 use hyper::{body::Incoming, Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
@@ -485,7 +487,7 @@ async fn handle_request(
         }
     }
 
-    // CORS headers for all responses
+    // CORS headers for public mailbox / discovery endpoints
     let cors_headers = |mut resp: Response<Full<Bytes>>| -> Response<Full<Bytes>> {
         resp.headers_mut()
             .insert("Access-Control-Allow-Origin", "*".parse().unwrap());
@@ -495,24 +497,24 @@ async fn handle_request(
         );
         resp.headers_mut().insert(
             "Access-Control-Allow-Headers",
-            "Content-Type, X-TKS-Federated-Push-Key, X-TKS-Relay-Peer"
-                .parse()
-                .unwrap(),
+            "Content-Type".parse().unwrap(),
         );
         resp
     };
 
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+
     // Handle CORS preflight
-    if req.method() == Method::OPTIONS {
+    if method == Method::OPTIONS {
         return Ok(cors_headers(Response::new(Full::new(Bytes::new()))));
     }
 
-    let path = req.uri().path().to_string();
     let get_ok = matches!(
         path.as_str(),
         "/stats" | "/hybrid/stats" | "/discovery" | "/version" | "/health"
     );
-    if req.method() != Method::POST && !(req.method() == Method::GET && get_ok) {
+    if method != Method::POST && !(method == Method::GET && get_ok) {
         let resp = Response::builder()
             .status(StatusCode::METHOD_NOT_ALLOWED)
             .body(Full::new(Bytes::from("Method not allowed")))
@@ -521,8 +523,24 @@ async fn handle_request(
     }
 
     let auth_headers = req.headers().clone();
-    let body_bytes = if req.method() == Method::POST {
-        req.collect().await?.to_bytes()
+    let body_bytes = if method == Method::POST {
+        match signal::collect_bounded_body(req.into_body(), MAX_RELAY_BODY_BYTES).await {
+            Ok(b) => b,
+            Err(signal::BodyReadError::TooLarge) => {
+                let resp = Response::builder()
+                    .status(StatusCode::PAYLOAD_TOO_LARGE)
+                    .body(Full::new(Bytes::from(r#"{"error":"payload too large"}"#)))
+                    .unwrap();
+                return Ok(cors_headers(resp));
+            }
+            Err(signal::BodyReadError::InvalidBody) => {
+                let resp = Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Full::new(Bytes::from(r#"{"error":"bad request body"}"#)))
+                    .unwrap();
+                return Ok(cors_headers(resp));
+            }
+        }
     } else {
         Bytes::new()
     };
@@ -553,16 +571,14 @@ async fn handle_request(
                 &auth_headers,
                 federated_push_key.as_ref(),
             ) {
-                return Ok(cors_headers(
-                    Response::builder()
-                        .status(StatusCode::FORBIDDEN)
-                        .body(Full::new(Bytes::from(
-                            r#"{"error":"federated push forbidden"}"#,
-                        )))
-                        .unwrap(),
-                ));
+                return Ok(Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .body(Full::new(Bytes::from(
+                        r#"{"error":"federated push forbidden"}"#,
+                    )))
+                    .unwrap());
             }
-            match parse_signal_push_body(&body_bytes) {
+            let out = match parse_signal_push_body(&body_bytes) {
                 Ok((recipient, message_id, ciphertext)) => {
                     deliver_signal_push(
                         signal_hub.as_deref(),
@@ -578,7 +594,12 @@ async fn handle_request(
                 }
                 Err(e) => serde_json::to_vec(&serde_json::json!({"error": e}))
                     .unwrap_or_default(),
-            }
+            };
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/json")
+                .body(Full::new(Bytes::from(out)))
+                .unwrap());
         }
         "/relay" => {
             // Generic bincode endpoint (used by client-core direct.rs)
@@ -802,6 +823,7 @@ fn mesh_replicate(chunk: EncryptedChunk, ctx: MeshPushContext) {
         let futures = disc.relays.iter().take(8).filter_map(|relay| {
             if relay.http_base.is_empty()
                 || Some(relay.http_base.as_str()) == ctx.self_http.as_deref()
+                || !discovery::is_safe_mesh_target(&relay.http_base)
             {
                 return None;
             }
@@ -861,6 +883,9 @@ fn mesh_signal_push(
                 .federated_push
                 .clone()
                 .or_else(|| discovery::federated_signal_push_url(&relay.http_base))?;
+            if !discovery::is_safe_mesh_target(&push_url) {
+                return None;
+            }
             let client = ctx.http_client.clone();
             let body = body.clone();
             let fed_key = ctx.federated_push_key.clone();
@@ -932,21 +957,32 @@ fn authorize_federated_push(
     headers: &HeaderMap,
     federated_key: Option<&String>,
 ) -> bool {
-    if remote.ip().is_loopback() {
-        return true;
-    }
+    let is_proxied = headers.contains_key("x-forwarded-for")
+        || headers.contains_key("x-real-ip")
+        || headers.contains_key("forwarded");
     if let Some(expected) = federated_key.filter(|k| !k.is_empty()) {
         return header_value_eq(headers, "X-TKS-Federated-Push-Key", expected);
     }
-    false
+    remote.ip().is_loopback() && !is_proxied
 }
 
 fn header_value_eq(headers: &HeaderMap, name: &str, expected: &str) -> bool {
     headers
         .get(name)
         .and_then(|v| v.to_str().ok())
-        .map(|got| got == expected)
+        .map(|got| constant_time_eq(got.as_bytes(), expected.as_bytes()))
         .unwrap_or(false)
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    use sha2::{Digest, Sha256};
+    let da = Sha256::digest(a);
+    let db = Sha256::digest(b);
+    let mut diff = 0u8;
+    for (x, y) in da.iter().zip(db.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0 && a.len() == b.len()
 }
 
 fn parse_signal_push_body(body: &[u8]) -> Result<(String, String, Vec<u8>), String> {
@@ -1061,7 +1097,13 @@ async fn forward_shard_ingest(
     msg_id: &str,
 ) {
     let body = shard_ingest_payload(chunk, msg_id);
-    match http_client.post(url).json(&body).send().await {
+    let mut req = http_client.post(url).json(&body);
+    if let Ok(key) = std::env::var("CIPHER_SHARD_INGEST_KEY") {
+        if !key.is_empty() {
+            req = req.header("X-TKS-Shard-Ingest-Key", key);
+        }
+    }
+    match req.send().await {
         Ok(resp) if resp.status().is_success() => {}
         Ok(resp) => {
             log::warn!(
@@ -1093,7 +1135,13 @@ async fn forward_shard_ingest_batch(
             .iter()
             .map(|c| shard_ingest_payload(c, &c.message_id))
             .collect();
-        if let Ok(resp) = http_client.post(&batch_url).json(&items).send().await {
+        let mut req = http_client.post(&batch_url).json(&items);
+        if let Ok(key) = std::env::var("CIPHER_SHARD_INGEST_KEY") {
+            if !key.is_empty() {
+                req = req.header("X-TKS-Shard-Ingest-Key", key);
+            }
+        }
+        if let Ok(resp) = req.send().await {
             if resp.status().is_success() {
                 return;
             }
@@ -1368,10 +1416,11 @@ pub async fn run_relay_server_with(
         }
     });
 
-    // HTTP REST API on port 4002
-    let addr: SocketAddr = format!("0.0.0.0:{}", port).parse()?;
+    // HTTP REST API on port 4002 (defaults strictly to 127.0.0.1 unless CIPHER_BIND_ADDR is set)
+    let bind_ip = signal::resolve_bind_ip();
+    let addr = SocketAddr::new(bind_ip, port);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    info!("🌐 HTTP REST API listening on http://0.0.0.0:{}", port);
+    info!("🌐 HTTP REST API listening on http://{}", addr);
     info!("   Endpoints: /relay /store /store/batch /fetch /ack /register /signal/push /ws /stats /discovery");
     if let Some(ref url) = shard_ingest_url {
         info!("   Shard ingest forward: {url}");
@@ -1657,5 +1706,47 @@ mod tests {
 
         sig_task.abort();
         relay_task.abort();
+    }
+
+    #[test]
+    fn federated_push_rejects_proxied_loopback_and_enforces_key() {
+        let loopback: SocketAddr = "127.0.0.1:50000".parse().unwrap();
+        let remote: SocketAddr = "203.0.113.10:50000".parse().unwrap();
+        let secret = "top-secret-push-key".to_string();
+
+        // Proxied requests from Nginx carry X-Forwarded-For on loopback — must NOT auto-trust.
+        let mut proxied = HeaderMap::new();
+        proxied.insert("x-forwarded-for", "198.51.100.7".parse().unwrap());
+        assert!(!authorize_federated_push(loopback, &proxied, None));
+        assert!(!authorize_federated_push(loopback, &proxied, Some(&secret)));
+
+        // Direct unproxied loopback fails when a federated key is configured, succeeds only with exact key.
+        let empty = HeaderMap::new();
+        assert!(authorize_federated_push(loopback, &empty, None));
+        assert!(!authorize_federated_push(loopback, &empty, Some(&secret)));
+
+        let mut authed = HeaderMap::new();
+        authed.insert("X-TKS-Federated-Push-Key", secret.parse().unwrap());
+        assert!(authorize_federated_push(remote, &authed, Some(&secret)));
+        assert!(authorize_federated_push(loopback, &proxied, None) == false);
+
+        proxied.insert("X-TKS-Federated-Push-Key", secret.parse().unwrap());
+        assert!(authorize_federated_push(loopback, &proxied, Some(&secret)));
+    }
+
+    #[test]
+    fn mesh_ssrf_guard_blocks_internal_targets() {
+        assert!(!discovery::is_safe_mesh_target(
+            "http://127.0.0.1:4003/internal/push"
+        ));
+        assert!(!discovery::is_safe_mesh_target(
+            "http://169.254.169.254/latest/meta-data"
+        ));
+        assert!(!discovery::is_safe_mesh_target("http://localhost:9944"));
+        assert!(!discovery::is_safe_mesh_target("http://10.0.0.5:4002"));
+        assert!(!discovery::is_safe_mesh_target("file:///etc/passwd"));
+        assert!(discovery::is_safe_mesh_target(
+            "https://relay2.tokenkickstarter.com"
+        ));
     }
 }

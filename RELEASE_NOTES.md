@@ -4,6 +4,18 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.27
+
+**Security hardening & release deploy fix** — locks down reverse-proxied relay/shard endpoints, bounds HTTP/WS body sizes, adds SSRF guards on mesh fanout, and defaults standalone binaries to `127.0.0.1` binding.
+
+### Security & Hardening
+
+- **`cipher-relay`:** fix Nginx loopback bypass on `POST /signal/push` (`X-Forwarded-For` / `X-Real-IP` / `Forwarded` never auto-trust loopback), constant-time `X-TKS-Federated-Push-Key` check, `16 MiB` POST & `1 MiB` `/internal/push` body caps (`413 Payload Too Large`), `addr` & WS payload validation, SSRF IP/hostname filtering on outbound mesh replication/push, and default `CIPHER_BIND_ADDR=127.0.0.1` for bare-metal runs.
+- **`cipher-shard-executor`:** authorize `/ingest` & `/ingest/batch` (`X-TKS-Shard-Ingest-Key` or unproxied loopback), enforce `16 MiB` body cap, serialize JSON responses safely with `serde_json::json!`, and default `CIPHER_BIND_ADDR=127.0.0.1`.
+- **Docker & Ops:** `Dockerfile` sets container-internal `CIPHER_BIND_ADDR=0.0.0.0` (preserving `network/docker-compose-live.yml` `127.0.0.1:` host mappings); `network/tks-node.service` drops `--rpc-external --rpc-cors all`; `network/scripts/vps-docker-github-release.sh` verifies standalone `SHA256SUMS.txt` assets directly.
+
+---
+
 ## v0.1.26
 
 **High-throughput Cipher relay/shard pipeline + L1 `specVersion 413` slot calibration** — eliminates HTTP/WS bottlenecks, removes global shard ingest locking, and aligns 1-second Aura slot headroom with `SLOT_GAS_CAP`.

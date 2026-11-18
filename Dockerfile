@@ -48,6 +48,9 @@ RUN chown -R tks:tks /app/tks-chain-node /app/tks_runtime.compact.compressed.was
 
 EXPOSE 30333 9944 9933 4002
 
+# Bridge-mode containers rely on host `127.0.0.1:<port>:<port>` NAT forwarding; bare binaries default to 127.0.0.1.
+ENV CIPHER_BIND_ADDR=0.0.0.0
+
 USER tks
 
 ENTRYPOINT ["/app/tks-chain-node", "-d", "/data"]

@@ -107,6 +107,77 @@ fn default_message_relay() -> bool {
     true
 }
 
+/// Reject loopback, private, link-local, or non-HTTP URLs for outbound mesh replication (SSRF guard).
+pub(crate) fn is_safe_mesh_target(raw: &str) -> bool {
+    if std::env::var("CIPHER_ALLOW_PRIVATE_PEERS").as_deref() == Ok("1") {
+        return raw.starts_with("http://") || raw.starts_with("https://");
+    }
+    let rest = if let Some(r) = raw.strip_prefix("https://") {
+        r
+    } else if let Some(r) = raw.strip_prefix("http://") {
+        r
+    } else {
+        return false;
+    };
+    let authority = rest.split('/').next().unwrap_or("");
+    if authority.is_empty() || authority.contains('@') {
+        return false;
+    }
+    let host = if authority.starts_with('[') {
+        authority
+            .trim_start_matches('[')
+            .split(']')
+            .next()
+            .unwrap_or("")
+    } else {
+        authority.split(':').next().unwrap_or("")
+    }
+    .trim()
+    .to_ascii_lowercase();
+
+    if host.is_empty()
+        || host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host.ends_with(".internal")
+    {
+        return false;
+    }
+
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return !is_non_public_ip(ip);
+    }
+    true
+}
+
+fn is_non_public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            let [a, b, _, _] = v4.octets();
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_multicast()
+                || a == 0
+                || (a == 100 && (64..=127).contains(&b))
+                || (a == 198 && (18..=19).contains(&b))
+                || a >= 224
+        }
+        std::net::IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_non_public_ip(std::net::IpAddr::V4(v4));
+            }
+            let seg = v6.segments();
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (seg[0] & 0xfe00) == 0xfc00
+                || (seg[0] & 0xffc0) == 0xfe80
+        }
+    }
+}
+
 /// Shard executor / ingest vhosts are not store-and-forward mailboxes.
 pub fn endpoint_is_mailbox_http(http: &str) -> bool {
     let h = http.to_lowercase();
