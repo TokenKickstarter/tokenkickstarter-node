@@ -1,0 +1,52 @@
+# Hardened TKS Layer-1 Node image installed from verified GitHub Release assets
+FROM ubuntu:24.04
+
+ARG TKS_NODE_VERSION=v0.1.28
+ARG TKS_GITHUB_REPO=TokenKickstarter/tokenkickstarter-node
+ARG TARGETARCH
+
+LABEL maintainer="Token Kickstarter"
+LABEL description="TKS Blockchain Node v0.1.28 (GitHub Release binary + SHA256 verified)"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eu; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64|x86_64) BIN_ARCH="amd64" ;; \
+      arm64|aarch64) BIN_ARCH="arm64" ;; \
+      *) echo "Unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    BASE_URL="https://github.com/${TKS_GITHUB_REPO}/releases/download/${TKS_NODE_VERSION}"; \
+    BIN_ASSET="tks-chain-node-${TKS_NODE_VERSION}-linux-${BIN_ARCH}"; \
+    WASM_ASSET="tks_runtime.compact.compressed.wasm"; \
+    TMP_DIR="$(mktemp -d)"; \
+    curl -fsSL -o "${TMP_DIR}/${BIN_ASSET}" "${BASE_URL}/${BIN_ASSET}"; \
+    curl -fsSL -o "${TMP_DIR}/${WASM_ASSET}" "${BASE_URL}/${WASM_ASSET}"; \
+    curl -fsSL -o "${TMP_DIR}/SHA256SUMS.txt" "${BASE_URL}/SHA256SUMS.txt"; \
+    EXPECTED_BIN="$(grep -E "[[:space:]](\./)?${BIN_ASSET}$" "${TMP_DIR}/SHA256SUMS.txt" | head -n1 | awk '{print $1}')"; \
+    EXPECTED_WASM="$(grep -E "[[:space:]](\./)?${WASM_ASSET}$" "${TMP_DIR}/SHA256SUMS.txt" | head -n1 | awk '{print $1}')"; \
+    test -n "${EXPECTED_BIN}"; \
+    test -n "${EXPECTED_WASM}"; \
+    echo "${EXPECTED_BIN}  ${TMP_DIR}/${BIN_ASSET}" | sha256sum -c -; \
+    echo "${EXPECTED_WASM}  ${TMP_DIR}/${WASM_ASSET}" | sha256sum -c -; \
+    mkdir -p /app; \
+    install -m 0755 "${TMP_DIR}/${BIN_ASSET}" /app/tks-chain-node; \
+    install -m 0644 "${TMP_DIR}/${WASM_ASSET}" /app/tks_runtime.compact.compressed.wasm; \
+    rm -rf "${TMP_DIR}"
+
+RUN groupadd -g 10010 -r tks && \
+    useradd -u 10010 -g tks -m -d /home/tks -s /bin/sh tks && \
+    mkdir -p /data && \
+    chown -R tks:tks /data /app
+
+# Container-internal bind only so Docker host mappings (strictly 127.0.0.1:<port>:<port>)
+# and internal bridge peers can reach tks-fullnode. Bare-metal binary defaults to 127.0.0.1.
+ENV CIPHER_BIND_ADDR=0.0.0.0
+
+USER tks
+WORKDIR /app
+
+ENTRYPOINT ["/app/tks-chain-node"]

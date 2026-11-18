@@ -1,0 +1,74 @@
+# Hardened Cipher CLI container (v0.2.5) built from verified GitHub Release archive
+FROM ubuntu:24.04
+
+ARG CIPHER_CLI_VERSION=v0.2.6
+ARG CIPHER_GITHUB_REPO=TokenKickstarter/Cipher-cli
+ARG TARGETARCH
+
+LABEL maintainer="Token Kickstarter"
+LABEL description="Cipher CLI v0.2.6 (GitHub Release binary + SHA256 verified)"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    tar \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eu; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64|x86_64) CLI_ARCH="x64" ;; \
+      arm64|aarch64) CLI_ARCH="arm64" ;; \
+      *) echo "Unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    BASE_URL="https://github.com/${CIPHER_GITHUB_REPO}/releases/download/${CIPHER_CLI_VERSION}"; \
+    ASSET_NAME="cipher-cli-linux-${CLI_ARCH}.tar.gz"; \
+    BIN_NAME="cipher-cli-linux-${CLI_ARCH}"; \
+    TMP_DIR="$(mktemp -d)"; \
+    curl -fsSL -o "${TMP_DIR}/${ASSET_NAME}" "${BASE_URL}/${ASSET_NAME}"; \
+    curl -fsSL -o "${TMP_DIR}/SHA256SUMS.txt" "${BASE_URL}/SHA256SUMS.txt"; \
+    EXPECTED_SHA="$(grep -E "[[:space:]](.*/)?${ASSET_NAME}$" "${TMP_DIR}/SHA256SUMS.txt" | head -n1 | awk '{print $1}')"; \
+    test -n "${EXPECTED_SHA}"; \
+    echo "${EXPECTED_SHA}  ${TMP_DIR}/${ASSET_NAME}" | sha256sum -c -; \
+    tar -xzf "${TMP_DIR}/${ASSET_NAME}" -C "${TMP_DIR}"; \
+    install -m 0755 "${TMP_DIR}/${BIN_NAME}" /usr/local/bin/cipher-cli; \
+    rm -rf "${TMP_DIR}"
+
+RUN groupadd -g 1001 -r cipher && \
+    useradd -u 1001 -g cipher -m -d /home/cipher -s /bin/sh cipher && \
+    mkdir -p /home/cipher/.cipher /home/cipher/Downloads /config && \
+    chown -R cipher:cipher /home/cipher /config
+
+RUN cat <<'EOF' > /usr/local/bin/cipher-cli-entrypoint.sh
+#!/usr/bin/env sh
+set -eu
+
+export HOME="${HOME:-/home/cipher}"
+export CIPHER_DIR="${CIPHER_DIR:-/home/cipher/.cipher}"
+export XDG_DOWNLOAD_DIR="${XDG_DOWNLOAD_DIR:-/home/cipher/Downloads}"
+
+mkdir -p "$CIPHER_DIR" "$XDG_DOWNLOAD_DIR"
+
+if [ -z "${CIPHER_PASSWORD:-}" ]; then
+  echo "ERROR: CIPHER_PASSWORD must be set in .env" >&2
+  exit 1
+fi
+
+if [ ! -f "$CIPHER_DIR/identity.json" ]; then
+  # Keep BIP-39 mnemonic out of Docker stdout/stderr logs
+  cipher-cli init >/dev/null
+fi
+
+cipher-cli whoami || true
+
+if [ "$#" -gt 0 ]; then
+  exec "$@"
+fi
+
+exec cipher-cli recv --follow --interval "${CIPHER_POLL_INTERVAL:-5}"
+EOF
+RUN chmod 0755 /usr/local/bin/cipher-cli-entrypoint.sh
+
+USER cipher
+WORKDIR /home/cipher
+
+ENTRYPOINT ["/usr/local/bin/cipher-cli-entrypoint.sh"]

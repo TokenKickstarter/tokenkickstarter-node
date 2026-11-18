@@ -244,6 +244,7 @@ pub async fn build_discovery(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn build_discovery_cached(
     public_http: Option<String>,
     public_signal_ws: Option<String>,
@@ -343,7 +344,7 @@ async fn build_discovery_inner(
     }
 
     relays.sort_by(|a, b| b.priority.cmp(&a.priority));
-    relays.dedup_by(|a, b| a.http_base == b.http_base && a.http_base != "");
+    relays.dedup_by(|a, b| a.http_base == b.http_base && !a.http_base.is_empty());
 
     let self_signal_ws =
         public_signal_ws.or_else(|| public_http.as_ref().and_then(|h| http_base_to_signal_ws(h)));

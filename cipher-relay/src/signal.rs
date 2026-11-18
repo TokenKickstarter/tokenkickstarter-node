@@ -20,10 +20,17 @@ use hyper_tungstenite::WebSocketStream;
 use hyper_util::rt::TokioIo;
 use log::{debug, info, warn};
 use std::net::{IpAddr, Ipv4Addr};
-use tokio::sync::{mpsc, RwLock};
+use std::time::{Duration, Instant};
+use tokio::sync::{mpsc, Mutex, RwLock};
+
+use crate::security;
 
 const MAX_SIGNAL_PUSH_BYTES: usize = 1024 * 1024;
 const MAX_WS_TEXT_BYTES: usize = 256 * 1024;
+const MAX_WS_CONN_PER_IP: usize = 32;
+const MAX_SESSIONS_TOTAL: usize = 50_000;
+const MAX_SIGNAL_QUEUES_TOTAL: usize = 50_000;
+const MAX_WS_MSG_PER_10S: u32 = 120;
 
 pub(crate) enum BodyReadError {
     TooLarge,
@@ -84,6 +91,7 @@ struct LiveSession {
 pub struct SignalHub {
     sessions: Arc<RwLock<HashMap<String, LiveSession>>>,
     queues: Arc<RwLock<HashMap<String, Vec<QueuedMsg>>>>,
+    conns_per_ip: Arc<Mutex<HashMap<IpAddr, usize>>>,
 }
 
 #[derive(Clone)]
@@ -97,6 +105,23 @@ impl SignalHub {
         Arc::new(Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             queues: Arc::new(RwLock::new(HashMap::new())),
+            conns_per_ip: Arc::new(Mutex::new(HashMap::new())),
+        })
+    }
+
+    pub async fn try_acquire_ws_slot(self: &Arc<Self>, ip: IpAddr) -> Option<WsConnGuard> {
+        let mut conns = self.conns_per_ip.lock().await;
+        let current = *conns.get(&ip).unwrap_or(&0);
+        if current >= MAX_WS_CONN_PER_IP {
+            return None;
+        }
+        if self.sessions.read().await.len() >= MAX_SESSIONS_TOTAL {
+            return None;
+        }
+        conns.insert(ip, current + 1);
+        Some(WsConnGuard {
+            hub: self.clone(),
+            ip,
         })
     }
 
@@ -138,6 +163,19 @@ impl SignalHub {
         }
 
         let mut queues = self.queues.write().await;
+        if queues.len() >= MAX_SIGNAL_QUEUES_TOTAL && !queues.contains_key(&recipient) {
+            let cutoff = now_ms().saturating_sub(QUEUE_TTL_MS);
+            queues.retain(|_, q| {
+                q.retain(|m| m.ts > cutoff);
+                !q.is_empty()
+            });
+            if queues.len() >= MAX_SIGNAL_QUEUES_TOTAL {
+                return PushOutcome {
+                    delivered: false,
+                    queued: false,
+                };
+            }
+        }
         let q = queues.entry(recipient).or_default();
         q.push(msg);
         let cutoff = now_ms().saturating_sub(QUEUE_TTL_MS);
@@ -201,6 +239,28 @@ pub struct PushOutcome {
     pub queued: bool,
 }
 
+pub struct WsConnGuard {
+    hub: Arc<SignalHub>,
+    ip: IpAddr,
+}
+
+impl Drop for WsConnGuard {
+    fn drop(&mut self) {
+        let hub = self.hub.clone();
+        let ip = self.ip;
+        tokio::spawn(async move {
+            let mut conns = hub.conns_per_ip.lock().await;
+            if let Some(count) = conns.get_mut(&ip) {
+                if *count <= 1 {
+                    conns.remove(&ip);
+                } else {
+                    *count -= 1;
+                }
+            }
+        });
+    }
+}
+
 pub async fn run_signal_server(
     port: u16,
     hub: Arc<SignalHub>,
@@ -214,18 +274,29 @@ pub async fn run_signal_server(
 }
 
 pub(crate) async fn serve_signal_listener(listener: tokio::net::TcpListener, hub: Arc<SignalHub>) {
+    serve_signal_listener_with_auth(listener, hub, security::require_client_sig_enabled()).await;
+}
+
+pub(crate) async fn serve_signal_listener_with_auth(
+    listener: tokio::net::TcpListener,
+    hub: Arc<SignalHub>,
+    enforce_sig: bool,
+) {
     hub.spawn_cleanup();
+    let rate_limiter = Arc::new(security::IpRateLimiter::from_env());
 
     loop {
         let Ok((stream, remote)) = listener.accept().await else {
             continue;
         };
         let hub = hub.clone();
+        let rl = rate_limiter.clone();
         tokio::spawn(async move {
             let io = TokioIo::new(stream);
             let service = service_fn(move |req| {
                 let hub = hub.clone();
-                async move { handle_signal_http(req, remote, hub).await }
+                let rl = rl.clone();
+                async move { handle_signal_http(req, remote, hub, &rl, enforce_sig).await }
             });
             // `.with_upgrades()` is required in hyper 1 so WebSocket connections survive 101 Switching Protocols.
             if let Err(e) = http1::Builder::new()
@@ -239,10 +310,12 @@ pub(crate) async fn serve_signal_listener(listener: tokio::net::TcpListener, hub
     }
 }
 
-/// Attempts to handle `GET /ws?addr=<id>` WebSocket upgrade on either `:4003` or `:4002`.
-pub(crate) fn try_upgrade_ws(
+/// Attempts to handle `GET /ws?addr=<id>&ts=<ms>&sig=<hex>` WebSocket upgrade on `:4003` or `:4002`.
+pub(crate) async fn try_upgrade_ws_with_auth(
     req: Request<Incoming>,
+    remote: SocketAddr,
     hub: &Arc<SignalHub>,
+    enforce_sig: bool,
 ) -> Result<Response<Full<Bytes>>, Request<Incoming>> {
     if !hyper_tungstenite::is_upgrade_request(&req) || req.uri().path() != "/ws" {
         return Err(req);
@@ -253,9 +326,7 @@ pub(crate) fn try_upgrade_ws(
         .query()
         .and_then(|q| {
             q.split('&').find_map(|pair| {
-                let mut it = pair.splitn(2, '=');
-                let k = it.next()?;
-                let v = it.next()?;
+                let (k, v) = pair.split_once('=')?;
                 if k == "addr" {
                     Some(v.trim().to_lowercase())
                 } else {
@@ -272,10 +343,28 @@ pub(crate) fn try_upgrade_ws(
             .unwrap());
     };
 
+    if let Err((status, msg)) =
+        security::authorize_ws_mailbox(&addr, req.uri().query(), enforce_sig)
+    {
+        return Ok(Response::builder()
+            .status(status)
+            .body(Full::new(Bytes::from(msg)))
+            .unwrap());
+    }
+
+    let client_ip = security::extract_client_ip(remote, req.headers());
+    let Some(guard) = hub.try_acquire_ws_slot(client_ip).await else {
+        return Ok(Response::builder()
+            .status(StatusCode::TOO_MANY_REQUESTS)
+            .body(Full::new(Bytes::from("Too many WebSocket connections")))
+            .unwrap());
+    };
+
     match hyper_tungstenite::upgrade(req, None) {
         Ok((resp, ws)) => {
             let hub = hub.clone();
             tokio::spawn(async move {
+                let _guard = guard;
                 match ws.await {
                     Ok(ws) => run_ws_session(ws, addr, hub).await,
                     Err(e) => warn!("[Signal] WebSocket upgrade failed: {e}"),
@@ -284,6 +373,7 @@ pub(crate) fn try_upgrade_ws(
             Ok(resp)
         }
         Err(e) => {
+            drop(guard);
             warn!("[Signal] Rejected invalid WebSocket upgrade: {e}");
             Ok(Response::builder()
                 .status(StatusCode::BAD_REQUEST)
@@ -297,8 +387,18 @@ async fn handle_signal_http(
     req: Request<Incoming>,
     remote: SocketAddr,
     hub: Arc<SignalHub>,
+    rate_limiter: &security::IpRateLimiter,
+    enforce_sig: bool,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
-    let req = match try_upgrade_ws(req, &hub) {
+    let client_ip = security::extract_client_ip(remote, req.headers());
+    if !rate_limiter.allow(client_ip, 1) {
+        return Ok(Response::builder()
+            .status(StatusCode::TOO_MANY_REQUESTS)
+            .body(Full::new(Bytes::from("Rate limit exceeded")))
+            .unwrap());
+    }
+
+    let req = match try_upgrade_ws_with_auth(req, remote, &hub, enforce_sig).await {
         Ok(resp) => return Ok(resp),
         Err(req) => req,
     };
@@ -408,9 +508,23 @@ async fn run_ws_session(
         }
     });
 
+    let mut rl_start = Instant::now();
+    let mut rl_count: u32 = 0;
+
     while let Some(frame) = stream.next().await {
         match frame {
             Ok(Message::Text(text)) => {
+                if rl_start.elapsed() >= Duration::from_secs(10) {
+                    rl_start = Instant::now();
+                    rl_count = 0;
+                }
+                rl_count = rl_count.saturating_add(1);
+                if rl_count > MAX_WS_MSG_PER_10S {
+                    let _ = ack_tx.send(Message::Text(
+                        r#"{"error":"Rate limit exceeded"}"#.to_string(),
+                    ));
+                    continue;
+                }
                 if let Some(reply) = handle_ws_text(&addr, &text, &hub).await {
                     let _ = ack_tx.send(Message::Text(reply));
                 }

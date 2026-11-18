@@ -34,6 +34,7 @@ use tokio::sync::{Notify, RwLock};
 pub mod build_info;
 pub mod discovery;
 pub mod hyperswarm;
+pub mod security;
 mod signal;
 
 pub use build_info::{ChainBuildInfo, SharedChainBuildInfo};
@@ -85,6 +86,8 @@ pub enum RelayResponse {
 // ─────────────────────────────────────────────────────────
 
 const STORE_SHARDS: usize = 64;
+const MAX_CHUNKS_PER_RECIPIENT: usize = 2_000;
+const MAX_KEY_ID_LEN: usize = 128;
 
 #[derive(Default)]
 struct ChunkShard {
@@ -219,19 +222,43 @@ impl ShardedChunkStore {
     }
 
     pub async fn store(&self, chunk: EncryptedChunk) -> Result<String, String> {
+        if chunk.recipient_id.is_empty()
+            || chunk.recipient_id.len() > MAX_KEY_ID_LEN
+            || chunk.message_id.is_empty()
+            || chunk.message_id.len() > MAX_KEY_ID_LEN
+        {
+            return Err("Invalid chunk identifier".into());
+        }
         let chunk_size = chunk.ciphertext.len();
         if !self.try_reserve_bytes(chunk_size) {
             return Err("Storage full".into());
         }
         let idx = Self::shard_idx(&chunk.recipient_id);
-        let (msg_id, notifier) = {
+        let res = {
             let mut shard = self.shards[idx].write().await;
-            shard.push_chunk(chunk)
+            let count = shard
+                .chunks
+                .get(&chunk.recipient_id)
+                .map(|v| v.len())
+                .unwrap_or(0);
+            if count >= MAX_CHUNKS_PER_RECIPIENT {
+                Err("Mailbox quota exceeded".into())
+            } else {
+                Ok(shard.push_chunk(chunk))
+            }
         };
-        if let Some(n) = notifier {
-            n.notify_waiters();
+        match res {
+            Ok((msg_id, notifier)) => {
+                if let Some(n) = notifier {
+                    n.notify_waiters();
+                }
+                Ok(msg_id)
+            }
+            Err(e) => {
+                self.release_bytes(chunk_size);
+                Err(e)
+            }
         }
-        Ok(msg_id)
     }
 
     /// Store multiple chunks while acquiring each touched shard's write lock once.
@@ -241,6 +268,14 @@ impl ShardedChunkStore {
     ) -> Result<Vec<EncryptedChunk>, String> {
         if chunks.is_empty() {
             return Ok(Vec::new());
+        }
+        if chunks.iter().any(|c| {
+            c.recipient_id.is_empty()
+                || c.recipient_id.len() > MAX_KEY_ID_LEN
+                || c.message_id.is_empty()
+                || c.message_id.len() > MAX_KEY_ID_LEN
+        }) {
+            return Err("Invalid chunk identifier".into());
         }
         let total_len: usize = chunks.iter().map(|c| c.ciphertext.len()).sum();
         if !self.try_reserve_bytes(total_len) {
@@ -254,16 +289,29 @@ impl ShardedChunkStore {
         }
 
         let mut stored = Vec::new();
+        let mut dropped_bytes = 0usize;
         let mut notifiers: Vec<Arc<Notify>> = Vec::new();
         for (idx, bucket) in buckets {
             let mut shard = self.shards[idx].write().await;
             for chunk in bucket {
+                let count = shard
+                    .chunks
+                    .get(&chunk.recipient_id)
+                    .map(|v| v.len())
+                    .unwrap_or(0);
+                if count >= MAX_CHUNKS_PER_RECIPIENT {
+                    dropped_bytes += chunk.ciphertext.len();
+                    continue;
+                }
                 let (_, notifier) = shard.push_chunk(chunk.clone());
                 if let Some(n) = notifier {
                     notifiers.push(n);
                 }
                 stored.push(chunk);
             }
+        }
+        if dropped_bytes > 0 {
+            self.release_bytes(dropped_bytes);
         }
         for n in notifiers {
             n.notify_waiters();
@@ -359,10 +407,22 @@ impl ShardedChunkStore {
 
     /// Idempotent store for HyperSwarm replication (same message_id allowed once).
     pub async fn store_replicate(&self, chunk: EncryptedChunk) -> Result<(), String> {
+        if chunk.recipient_id.is_empty()
+            || chunk.recipient_id.len() > MAX_KEY_ID_LEN
+            || chunk.message_id.is_empty()
+            || chunk.message_id.len() > MAX_KEY_ID_LEN
+        {
+            return Err("Invalid chunk identifier".into());
+        }
         let idx = Self::shard_idx(&chunk.recipient_id);
         let chunk_size = chunk.ciphertext.len();
         let notifier = {
             let mut shard = self.shards[idx].write().await;
+            let list_len = shard
+                .chunks
+                .get(&chunk.recipient_id)
+                .map(|list| list.len())
+                .unwrap_or(0);
             let already_present = shard
                 .chunks
                 .get(&chunk.recipient_id)
@@ -370,6 +430,9 @@ impl ShardedChunkStore {
                 .unwrap_or(false);
             if already_present {
                 return Ok(());
+            }
+            if list_len >= MAX_CHUNKS_PER_RECIPIENT {
+                return Err("Mailbox quota exceeded".into());
             }
             if !self.try_reserve_bytes(chunk_size) {
                 return Err("Storage full".into());
@@ -434,6 +497,8 @@ struct RelayHttpContext {
     signal_hub: Option<Arc<signal::SignalHub>>,
     http_client: reqwest::Client,
     discovery_cache: discovery::DiscoveryCache,
+    rate_limiter: Arc<security::IpRateLimiter>,
+    require_client_sig: bool,
 }
 
 #[derive(Clone)]
@@ -480,8 +545,18 @@ async fn handle_request(
     ctx: RelayHttpContext,
     remote_addr: SocketAddr,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
+    let client_ip = security::extract_client_ip(remote_addr, req.headers());
+    if !ctx.rate_limiter.allow(client_ip, 1) {
+        return Ok(Response::builder()
+            .status(StatusCode::TOO_MANY_REQUESTS)
+            .header("Content-Type", "application/json")
+            .body(Full::new(Bytes::from(r#"{"error":"rate limit exceeded"}"#)))
+            .unwrap());
+    }
+
     if let Some(ref hub) = ctx.signal_hub {
-        match signal::try_upgrade_ws(req, hub) {
+        match signal::try_upgrade_ws_with_auth(req, remote_addr, hub, ctx.require_client_sig).await
+        {
             Ok(resp) => return Ok(resp),
             Err(original_req) => req = original_req,
         }
@@ -497,9 +572,23 @@ async fn handle_request(
         );
         resp.headers_mut().insert(
             "Access-Control-Allow-Headers",
-            "Content-Type".parse().unwrap(),
+            "Content-Type, X-TKS-Ts, X-TKS-Sig, X-TKS-Federated-Push-Key"
+                .parse()
+                .unwrap(),
         );
         resp
+    };
+
+    let json_err = |status: StatusCode, msg: &str| -> Response<Full<Bytes>> {
+        cors_headers(
+            Response::builder()
+                .status(status)
+                .header("Content-Type", "application/json")
+                .body(Full::new(Bytes::from(
+                    serde_json::json!({ "error": msg }).to_string(),
+                )))
+                .unwrap(),
+        )
     };
 
     let method = req.method().clone();
@@ -559,6 +648,8 @@ async fn handle_request(
         signal_hub,
         http_client,
         discovery_cache,
+        rate_limiter: _,
+        require_client_sig,
     } = ctx.clone();
     let mesh_push = MeshPushContext::from_relay_ctx(&ctx);
 
@@ -602,9 +693,69 @@ async fn handle_request(
                 .unwrap());
         }
         "/relay" => {
-            // Generic bincode endpoint (used by client-core direct.rs)
+            // Generic bincode endpoint (used by legacy clients)
             match bincode::deserialize::<RelayRequest>(&body_bytes) {
                 Ok(relay_req) => {
+                    let auth_err = match &relay_req {
+                        RelayRequest::Fetch { recipient_id } => {
+                            if security::is_probe_recipient(recipient_id) {
+                                return Ok(cors_headers(
+                                    Response::builder()
+                                        .status(StatusCode::OK)
+                                        .body(Full::new(Bytes::from(
+                                            bincode::serialize(&RelayResponse::Chunks(vec![]))
+                                                .unwrap_or_default(),
+                                        )))
+                                        .unwrap(),
+                                ));
+                            }
+                            if !security::is_public_directory_mailbox(recipient_id) {
+                                security::authorize_http_mailbox(
+                                    "fetch",
+                                    recipient_id,
+                                    &auth_headers,
+                                    require_client_sig,
+                                )
+                                .err()
+                            } else {
+                                None
+                            }
+                        }
+                        RelayRequest::Ack { recipient_id, .. } => {
+                            security::authorize_http_mailbox(
+                                "ack",
+                                recipient_id,
+                                &auth_headers,
+                                require_client_sig,
+                            )
+                            .err()
+                        }
+                        RelayRequest::Register { evm_address } => {
+                            security::authorize_http_mailbox(
+                                "register",
+                                evm_address,
+                                &auth_headers,
+                                require_client_sig,
+                            )
+                            .err()
+                        }
+                        RelayRequest::RpcProxy { .. } => Some((
+                            StatusCode::FORBIDDEN,
+                            "RpcProxy disabled for security",
+                        )),
+                        RelayRequest::Store(_) => None,
+                    };
+                    if let Some((status, msg)) = auth_err {
+                        let resp = RelayResponse::Error(msg.to_string());
+                        return Ok(cors_headers(
+                            Response::builder()
+                                .status(status)
+                                .body(Full::new(Bytes::from(
+                                    bincode::serialize(&resp).unwrap_or_default(),
+                                )))
+                                .unwrap(),
+                        ));
+                    }
                     let resp = process_relay_request(relay_req, &ctx, true).await;
                     bincode::serialize(&resp).unwrap_or_default()
                 }
@@ -675,7 +826,19 @@ async fn handle_request(
                     if recipient_id.is_empty() {
                         serde_json::to_vec(&serde_json::json!({"error": "missing recipient_id"}))
                             .unwrap_or_default()
+                    } else if security::is_probe_recipient(&recipient_id) {
+                        serde_json::to_vec(&RelayResponse::Chunks(Vec::new())).unwrap_or_default()
                     } else {
+                        if !security::is_public_directory_mailbox(&recipient_id) {
+                            if let Err((status, msg)) = security::authorize_http_mailbox(
+                                "fetch",
+                                &recipient_id,
+                                &auth_headers,
+                                require_client_sig,
+                            ) {
+                                return Ok(json_err(status, msg));
+                            }
+                        }
                         // Read local shard first — do not block HTTP on libp2p chunk pull.
                         let chunks = store.fetch(&recipient_id).await;
                         if !chunks.is_empty() {
@@ -712,6 +875,14 @@ async fn handle_request(
             match serde_json::from_slice::<serde_json::Value>(&body_bytes) {
                 Ok(val) => {
                     let recipient_id = val["recipient_id"].as_str().unwrap_or("").to_string();
+                    if let Err((status, msg)) = security::authorize_http_mailbox(
+                        "ack",
+                        &recipient_id,
+                        &auth_headers,
+                        require_client_sig,
+                    ) {
+                        return Ok(json_err(status, msg));
+                    }
                     let message_ids: Vec<String> = val["message_ids"]
                         .as_array()
                         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
@@ -731,6 +902,14 @@ async fn handle_request(
             match serde_json::from_slice::<serde_json::Value>(&body_bytes) {
                 Ok(val) => {
                     let evm_address = val["evm_address"].as_str().unwrap_or("").to_string();
+                    if let Err((status, msg)) = security::authorize_http_mailbox(
+                        "register",
+                        &evm_address,
+                        &auth_headers,
+                        require_client_sig,
+                    ) {
+                        return Ok(json_err(status, msg));
+                    }
                     let resp = process_relay_request(
                         RelayRequest::Register { evm_address },
                         &ctx,
@@ -1267,22 +1446,8 @@ async fn process_relay_request(
             debug!("📋 Registered peer: {}", evm_address);
             RelayResponse::Registered
         }
-        RelayRequest::RpcProxy { endpoint, body } => {
-            debug!("🔄 Proxying RPC to {} ({} bytes)", endpoint, body.len());
-            match ctx
-                .http_client
-                .post(&endpoint)
-                .header("Content-Type", "application/json")
-                .body(body)
-                .send()
-                .await
-            {
-                Ok(resp) => match resp.text().await {
-                    Ok(text) => RelayResponse::RpcResult { body: text },
-                    Err(e) => RelayResponse::Error(format!("Failed to read RPC response: {}", e)),
-                },
-                Err(e) => RelayResponse::Error(format!("Failed to proxy RPC: {}", e)),
-            }
+        RelayRequest::RpcProxy { .. } => {
+            RelayResponse::Error("RpcProxy disabled for security".to_string())
         }
     }
 }
@@ -1446,6 +1611,12 @@ pub async fn run_relay_server_with(
         info!("   Federated signal push: enabled (POST /signal/push + mesh fanout)");
     }
 
+    let rate_limiter = Arc::new(security::IpRateLimiter::from_env());
+    let require_client_sig = security::require_client_sig_enabled();
+    if require_client_sig {
+        info!("   Client mailbox auth: required (ECDSA signature on /fetch, /ack, /register, /ws)");
+    }
+
     let ctx = RelayHttpContext {
         store,
         shard_ingest_url,
@@ -1460,6 +1631,8 @@ pub async fn run_relay_server_with(
         signal_hub,
         http_client,
         discovery_cache,
+        rate_limiter,
+        require_client_sig,
     };
 
     serve_relay_http_listener(listener, ctx).await;
@@ -1571,12 +1744,28 @@ mod tests {
 
     #[tokio::test]
     async fn live_ws_upgrade_survives_101_and_delivers_push_and_batch() {
+        use k256::ecdsa::SigningKey;
+        use sha3::{Digest as _, Keccak256};
+
+        fn mk_wallet(seed: u8) -> (SigningKey, String, String) {
+            let sk = SigningKey::from_slice(&[seed; 32]).unwrap();
+            let pt = sk.verifying_key().to_encoded_point(false);
+            let h = Keccak256::digest(&pt.as_bytes()[1..65]);
+            let evm = format!("0x{}", hex::encode(&h[12..32]));
+            let sealed = security::sealed_mailbox_for_evm(&evm);
+            (sk, evm, sealed)
+        }
+
+        let (alice_sk, _alice_evm, alice_sealed) = mk_wallet(1);
+        let (bob_sk, _bob_evm, bob_sealed) = mk_wallet(2);
+        let (carol_sk, carol_evm, carol_sealed) = mk_wallet(3);
+
         let signal_hub = signal::SignalHub::new();
         let signal_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let signal_addr = signal_listener.local_addr().unwrap();
         let hub_bg = signal_hub.clone();
         let sig_task = tokio::spawn(async move {
-            signal::serve_signal_listener(signal_listener, hub_bg).await;
+            signal::serve_signal_listener_with_auth(signal_listener, hub_bg, true).await;
         });
 
         let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1596,14 +1785,30 @@ mod tests {
             signal_hub: Some(signal_hub),
             http_client: http_client.clone(),
             discovery_cache: discovery::DiscoveryCache::new(Duration::from_secs(15)),
+            rate_limiter: Arc::new(security::IpRateLimiter::new(500)),
+            require_client_sig: true,
         };
         let relay_task = tokio::spawn(async move {
             serve_relay_http_listener(relay_listener, ctx).await;
         });
 
-        // 1) Connect real WebSocket client on :signal_port/ws?addr=0xalice
-        let alice_ws_url = format!("ws://{signal_addr}/ws?addr=0xAlice");
-        let bob_ws_url = format!("ws://{relay_addr}/ws?addr=0xBob");
+        // 0) Unsigned WS upgrade must be rejected (401)
+        let unauth_ws = format!("ws://{signal_addr}/ws?addr={alice_sealed}");
+        let unauth_err = tokio::task::spawn_blocking(move || {
+            hyper_tungstenite::tungstenite::connect(unauth_ws).unwrap_err()
+        })
+        .await
+        .unwrap();
+        assert!(format!("{unauth_err}").contains("401"));
+
+        // 1) Connect signed WebSocket client on :signal_port/ws?addr=<alice_sealed>&ts=...&sig=...
+        let ts = security::now_unix_ms();
+        let alice_ws_sig = security::sign_for_test(&alice_sk, "ws", &alice_sealed, ts);
+        let alice_ws_url =
+            format!("ws://{signal_addr}/ws?addr={alice_sealed}&ts={ts}&sig={alice_ws_sig}");
+        let bob_ws_sig = security::sign_for_test(&bob_sk, "ws", &bob_sealed, ts);
+        let bob_ws_url = format!("ws://{relay_addr}/ws?addr={bob_sealed}&ts={ts}&sig={bob_ws_sig}");
+
         let (mut ws_alice, resp_alice) = tokio::task::spawn_blocking(move || {
             hyper_tungstenite::tungstenite::connect(alice_ws_url).unwrap()
         })
@@ -1611,7 +1816,7 @@ mod tests {
         .unwrap();
         assert_eq!(resp_alice.status().as_u16(), 101);
 
-        // 2) Connect real WebSocket client directly on :relay_port/ws?addr=0xBob
+        // 2) Connect signed WebSocket client directly on :relay_port/ws
         let (mut ws_bob, resp_bob) = tokio::task::spawn_blocking(move || {
             hyper_tungstenite::tungstenite::connect(bob_ws_url).unwrap()
         })
@@ -1619,8 +1824,8 @@ mod tests {
         .unwrap();
         assert_eq!(resp_bob.status().as_u16(), 101);
 
-        // 3) POST /store to relay -> should store AND push instant WS frame to 0xalice.
-        let chunk = test_chunk("0xalice", "push_msg_1", 12, u64::MAX);
+        // 3) POST /store to relay -> should store AND push instant WS frame to alice_sealed.
+        let chunk = test_chunk(&alice_sealed, "push_msg_1", 12, u64::MAX);
         let store_res: serde_json::Value = http_client
             .post(format!("http://{relay_addr}/store"))
             .json(&chunk)
@@ -1646,12 +1851,13 @@ mod tests {
         assert_eq!(parsed["type"], "message");
         assert_eq!(parsed["message_id"], "push_msg_1");
 
-        // 4) Peer-to-peer WS relay from alice -> bob over open WS connections.
+        // 4) Peer-to-peer WS relay from alice_sealed -> bob_sealed over open WS connections.
+        let bob_sealed_msg = bob_sealed.clone();
         let (mut ws_alice, ack_text) = tokio::task::spawn_blocking(move || {
             ws_alice
                 .send(hyper_tungstenite::tungstenite::Message::Text(
                     serde_json::json!({
-                        "to": "0xbob",
+                        "to": bob_sealed_msg,
                         "payload": {"hello": "world"}
                     })
                     .to_string(),
@@ -1674,16 +1880,19 @@ mod tests {
         .await
         .unwrap();
         let bob_json: serde_json::Value = serde_json::from_str(&bob_frame).unwrap();
-        assert_eq!(bob_json["from"], "0xalice");
+        assert_eq!(bob_json["from"], alice_sealed);
         assert_eq!(bob_json["payload"]["hello"], "world");
-        let _ = tokio::task::spawn_blocking(move || ws_alice.close(None)).await;
+        let _ = tokio::task::spawn_blocking(move || {
+            let _ = ws_alice.close(None);
+        })
+        .await;
 
-        // 5) POST /store/batch + /fetch + /ack + /stats
+        // 5) POST /store/batch + signed /fetch + unsigned/wrong /ack rejected + signed /ack succeeds
         let batch_resp: serde_json::Value = http_client
             .post(format!("http://{relay_addr}/store/batch"))
             .json(&vec![
-                test_chunk("0xcarol", "batch_1", 10, u64::MAX),
-                test_chunk("0xcarol", "batch_2", 14, u64::MAX),
+                test_chunk(&carol_sealed, "batch_1", 10, u64::MAX),
+                test_chunk(&carol_sealed, "batch_2", 14, u64::MAX),
             ])
             .send()
             .await
@@ -1693,9 +1902,22 @@ mod tests {
             .unwrap();
         assert_eq!(batch_resp["stored"], 2);
 
+        // Unsigned /fetch on private mailbox must return 401
+        let unauth_fetch = http_client
+            .post(format!("http://{relay_addr}/fetch"))
+            .json(&serde_json::json!({"recipient_id": carol_sealed}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth_fetch.status().as_u16(), 401);
+
+        // Signed /fetch by carol succeeds
+        let fetch_sig = security::sign_for_test(&carol_sk, "fetch", &carol_sealed, ts);
         let fetched: serde_json::Value = http_client
             .post(format!("http://{relay_addr}/fetch"))
-            .json(&serde_json::json!({"recipient_id": "0xcarol"}))
+            .header("X-TKS-Ts", ts.to_string())
+            .header("X-TKS-Sig", fetch_sig)
+            .json(&serde_json::json!({"recipient_id": carol_sealed}))
             .send()
             .await
             .unwrap()
@@ -1703,6 +1925,76 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(fetched["Chunks"].as_array().unwrap().len(), 2);
+
+        // Probe recipient 0000... and public peer-dir-v1:* remain readable without auth
+        let probe_res: serde_json::Value = http_client
+            .post(format!("http://{relay_addr}/fetch"))
+            .json(&serde_json::json!({"recipient_id": security::PROBE_RECIPIENT_ID}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert!(probe_res["Chunks"].as_array().unwrap().is_empty());
+
+        let carol_dir = security::peer_dir_mailbox_for_evm(&carol_evm);
+        let _ = http_client
+            .post(format!("http://{relay_addr}/store"))
+            .json(&test_chunk(&carol_dir, "dir_1", 8, u64::MAX))
+            .send()
+            .await
+            .unwrap();
+        let dir_fetch: serde_json::Value = http_client
+            .post(format!("http://{relay_addr}/fetch"))
+            .json(&serde_json::json!({"recipient_id": carol_dir}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(dir_fetch["Chunks"].as_array().unwrap().len(), 1);
+
+        // Attacker (bob) CANNOT delete carol's mailbox or peer-dir bundle via /ack
+        let forged_ack = security::sign_for_test(&bob_sk, "ack", &carol_sealed, ts);
+        let ack_denied = http_client
+            .post(format!("http://{relay_addr}/ack"))
+            .header("X-TKS-Ts", ts.to_string())
+            .header("X-TKS-Sig", forged_ack)
+            .json(&serde_json::json!({"recipient_id": carol_sealed, "message_ids": ["batch_1"]}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(ack_denied.status().as_u16(), 401);
+
+        // Carol's signed /ack deletes batch_1 cleanly
+        let valid_ack = security::sign_for_test(&carol_sk, "ack", &carol_sealed, ts);
+        let ack_ok: serde_json::Value = http_client
+            .post(format!("http://{relay_addr}/ack"))
+            .header("X-TKS-Ts", ts.to_string())
+            .header("X-TKS-Sig", valid_ack)
+            .json(&serde_json::json!({"recipient_id": carol_sealed, "message_ids": ["batch_1"]}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(ack_ok["Acked"]["deleted"], 1);
+
+        // SSRF RpcProxy over /relay must be forbidden (403)
+        let rpc_proxy_req = RelayRequest::RpcProxy {
+            endpoint: "http://127.0.0.1:4003/internal/push".into(),
+            body: "{}".into(),
+        };
+        let ssrf_resp = http_client
+            .post(format!("http://{relay_addr}/relay"))
+            .body(bincode::serialize(&rpc_proxy_req).unwrap())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(ssrf_resp.status().as_u16(), 403);
 
         sig_task.abort();
         relay_task.abort();
@@ -1728,7 +2020,7 @@ mod tests {
         let mut authed = HeaderMap::new();
         authed.insert("X-TKS-Federated-Push-Key", secret.parse().unwrap());
         assert!(authorize_federated_push(remote, &authed, Some(&secret)));
-        assert!(authorize_federated_push(loopback, &proxied, None) == false);
+        assert!(!authorize_federated_push(loopback, &proxied, None));
 
         proxied.insert("X-TKS-Federated-Push-Key", secret.parse().unwrap());
         assert!(authorize_federated_push(loopback, &proxied, Some(&secret)));

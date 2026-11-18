@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "bundle_id": "cipher-network-docker-internal-v1",
+  "http_relays": [
+    "http://tks-fullnode:4002"
+  ],
+  "signal_ws": [
+    "ws://tks-fullnode:4003/ws"
+  ],
+  "rpc_http": [
+    "http://tks-fullnode:9944"
+  ],
+  "notes": "Docker-internal bundle on tks-bridge; no 0.0.0.0 host exposure needed."
+}

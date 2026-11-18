@@ -55,6 +55,7 @@ calc-ecdsa/target/
 # ── Secrets / Environment ────────────────────────────────────────────
 .env
 .env.*
+!network/.env.3nodes-2cli.example
 secrets/
 *.secret
 *.pem

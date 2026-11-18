@@ -1182,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "cipher-relay"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64 0.22.1",
  "bincode",
@@ -1197,12 +1197,14 @@ dependencies = [
  "hyper 1.8.1",
  "hyper-tungstenite",
  "hyper-util",
+ "k256",
  "libp2p",
  "log",
  "reqwest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sha3",
  "tokio",
  "uuid",
 ]
@@ -4648,6 +4650,7 @@ dependencies = [
  "once_cell",
  "serdect",
  "sha2 0.10.9",
+ "signature",
 ]
 
 [[package]]
@@ -11075,7 +11078,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tks-chain-node"
-version = "0.1.27"
+version = "0.1.28"
 dependencies = [
  "cipher-hybrid",
  "cipher-relay",

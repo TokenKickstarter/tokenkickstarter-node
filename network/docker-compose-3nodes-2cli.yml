@@ -1,0 +1,329 @@
+# Hardened TKS Layer-1 (1 Master Fullnode + 2 Seed/Validator Nodes) + 2 Cipher CLI Containers
+# - Zero 0.0.0.0 host bindings by default (all HTTP/RPC/WS/Relay/Shard bound strictly to 127.0.0.1)
+# - Validators and Cipher CLIs publish NO host ports; all cluster traffic stays on internal tks-bridge
+# - Requires .env copied from .env.3nodes-2cli.example with strong random secrets (chmod 600 .env)
+
+x-tks-common: &tks-common
+  build:
+    context: .
+    dockerfile: Dockerfile.tks-release
+    args:
+      TKS_NODE_VERSION: ${TKS_NODE_VERSION:-v0.1.28}
+  restart: unless-stopped
+  user: "10010:10010"
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  pids_limit: 512
+  cpus: "4.0"
+  mem_limit: 4g
+  networks:
+    - tks-bridge
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+x-cipher-cli-common: &cipher-cli-common
+  build:
+    context: .
+    dockerfile: Dockerfile.cipher-cli
+    args:
+      CIPHER_CLI_VERSION: ${CIPHER_CLI_VERSION:-v0.2.6}
+  restart: unless-stopped
+  user: "1001:1001"
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=32m
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  pids_limit: 128
+  cpus: "1.0"
+  mem_limit: 512m
+  networks:
+    - tks-bridge
+  depends_on:
+    tks-fullnode:
+      condition: service_healthy
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # ── Master Node: Public Nginx & TKSScan (via 127.0.0.1) + Internal Bridge Hub ──
+  tks-fullnode:
+    <<: *tks-common
+    container_name: tks-fullnode
+    ports:
+      - "127.0.0.1:9944:9944"
+      - "127.0.0.1:4002:4002"
+      - "127.0.0.1:4010:4010"
+      - "127.0.0.1:4003:4003"
+      - "${TKS_P2P_BIND_IP:-127.0.0.1}:30333:30333"
+      - "${TKS_P2P_BIND_IP:-127.0.0.1}:4001:4001"
+    environment:
+      CIPHER_BIND_ADDR: "0.0.0.0"
+      CIPHER_ALLOW_PRIVATE_PEERS: "0"
+      CIPHER_REQUIRE_CLIENT_SIG: ${CIPHER_REQUIRE_CLIENT_SIG:-1}
+      CIPHER_RATE_LIMIT_PER_MIN: ${CIPHER_RATE_LIMIT_PER_MIN:-1200}
+      CIPHER_FEDERATED_PUSH_KEY: ${CIPHER_FEDERATED_PUSH_KEY:?Set CIPHER_FEDERATED_PUSH_KEY in .env}
+      CIPHER_SHARD_INGEST_KEY: ${CIPHER_SHARD_INGEST_KEY:?Set CIPHER_SHARD_INGEST_KEY in .env}
+      CIPHER_PUBLIC_RELAY_URL: ${CIPHER_PUBLIC_RELAY_URL:-https://relay.tokenkickstarter.com}
+      CIPHER_PUBLIC_SIGNAL_WS: ${CIPHER_PUBLIC_SIGNAL_WS:-wss://signal.tokenkickstarter.com/ws}
+    volumes:
+      - tks-data-fullnode:/data
+      - type: bind
+        source: ./config/chainspec-raw.json
+        target: /chainspec.json
+        read_only: true
+      - type: bind
+        source: ./config/fullnode-key
+        target: /node-key
+        read_only: true
+      - type: bind
+        source: ./config/cipher-anchor-seed.txt
+        target: /config/cipher-anchor-seed.txt
+        read_only: true
+    command:
+      - --chain
+      - /chainspec.json
+      - --base-path
+      - /data
+      - --name
+      - TKS-Fullnode
+      - --node-key-file
+      - /node-key
+      - --rpc-port
+      - "9944"
+      - --rpc-external
+      - --rpc-cors
+      - ${TKS_RPC_CORS:-https://tksscan.com,https://rpc.tokenkickstarter.com,http://127.0.0.1:8172}
+      - --rpc-methods
+      - Safe
+      - --rpc-hide-node-identity
+      - --rpc-rate-limit
+      - "600"
+      - --rpc-rate-limit-trust-proxy-headers
+      - --rpc-rate-limit-whitelisted-ips
+      - 127.0.0.1/32
+      - --rpc-rate-limit-whitelisted-ips
+      - 172.16.0.0/12
+      - --rpc-max-connections
+      - "200"
+      - --rpc-max-request-size
+      - "4"
+      - --rpc-max-response-size
+      - "8"
+      - --rpc-max-subscriptions-per-connection
+      - "16"
+      - --rpc-max-batch-request-len
+      - "32"
+      - --listen-addr
+      - /ip4/0.0.0.0/tcp/30333
+      - --allow-private-ip
+      - --discover-local
+      - --pool-limit
+      - "50000"
+      - --pool-kbytes
+      - "65536"
+      - --pool-type
+      - fork-aware
+      - --pool-future-divisor
+      - "10"
+      - --in-peers
+      - "32"
+      - --out-peers
+      - "32"
+      - --enable-cipher-relay
+      - --cipher-relay-port=4002
+      - --enable-cipher-shard-executor
+      - --cipher-shard-port=4010
+      - --cipher-shard-id=0
+      - --cipher-signal-port=4003
+      - --enable-cipher-hyperswarm
+      - --cipher-hyperswarm-port=4001
+      - --cipher-auto-post-anchor
+      - --cipher-anchor-seed-file=/config/cipher-anchor-seed.txt
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9944/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
+  # ── Seed / Validator Node 1 (no host ports, no external RPC, consensus only) ────
+  tks-validator1:
+    <<: *tks-common
+    container_name: tks-validator1
+    cpus: "2.0"
+    mem_limit: 2g
+    depends_on:
+      tks-fullnode:
+        condition: service_healthy
+    volumes:
+      - tks-data-validator1:/data
+      - type: bind
+        source: ./config/chainspec-raw.json
+        target: /chainspec.json
+        read_only: true
+      - type: bind
+        source: ./config/validator1-key
+        target: /node-key
+        read_only: true
+    command:
+      - --chain
+      - /chainspec.json
+      - --base-path
+      - /data
+      - --validator
+      - --name
+      - TKS-Validator-1
+      - --node-key-file
+      - /node-key
+      - --rpc-port
+      - "9944"
+      - --rpc-methods
+      - Safe
+      - --listen-addr
+      - /ip4/0.0.0.0/tcp/30333
+      - --allow-private-ip
+      - --discover-local
+      - --pool-limit
+      - "50000"
+      - --pool-kbytes
+      - "65536"
+      - --pool-type
+      - fork-aware
+      - --pool-future-divisor
+      - "10"
+      - --in-peers
+      - "32"
+      - --out-peers
+      - "32"
+      - --disable-cipher-stack
+      - --bootnodes
+      - /dns4/tks-fullnode/tcp/30333/p2p/${TKS_FULLNODE_PEER_ID:?Set TKS_FULLNODE_PEER_ID in .env}
+      - --reserved-nodes
+      - /dns4/tks-fullnode/tcp/30333/p2p/${TKS_FULLNODE_PEER_ID:?Set TKS_FULLNODE_PEER_ID in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9944/health >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
+  # ── Seed / Validator Node 2 (no host ports, no external RPC, consensus only) ────
+  tks-validator2:
+    <<: *tks-common
+    container_name: tks-validator2
+    cpus: "2.0"
+    mem_limit: 2g
+    depends_on:
+      tks-fullnode:
+        condition: service_healthy
+    volumes:
+      - tks-data-validator2:/data
+      - type: bind
+        source: ./config/chainspec-raw.json
+        target: /chainspec.json
+        read_only: true
+      - type: bind
+        source: ./config/validator2-key
+        target: /node-key
+        read_only: true
+    command:
+      - --chain
+      - /chainspec.json
+      - --base-path
+      - /data
+      - --validator
+      - --name
+      - TKS-Validator-2
+      - --node-key-file
+      - /node-key
+      - --rpc-port
+      - "9944"
+      - --rpc-methods
+      - Safe
+      - --listen-addr
+      - /ip4/0.0.0.0/tcp/30333
+      - --allow-private-ip
+      - --discover-local
+      - --pool-limit
+      - "50000"
+      - --pool-kbytes
+      - "65536"
+      - --pool-type
+      - fork-aware
+      - --pool-future-divisor
+      - "10"
+      - --in-peers
+      - "32"
+      - --out-peers
+      - "32"
+      - --disable-cipher-stack
+      - --bootnodes
+      - /dns4/tks-fullnode/tcp/30333/p2p/${TKS_FULLNODE_PEER_ID:?Set TKS_FULLNODE_PEER_ID in .env}
+      - --reserved-nodes
+      - /dns4/tks-fullnode/tcp/30333/p2p/${TKS_FULLNODE_PEER_ID:?Set TKS_FULLNODE_PEER_ID in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9944/health >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
+  # ── Cipher CLI Node 1 (v0.2.5, internal bridge only, zero exposed host ports) ──
+  cipher-cli-1:
+    <<: *cipher-cli-common
+    container_name: cipher-cli-1
+    environment:
+      CIPHER_DIR: /home/cipher/.cipher
+      CIPHER_NETWORK_BUNDLE: /config/cipher-bundle.json
+      CIPHER_TRANSPORT_MODE: ${CIPHER_TRANSPORT_MODE:-auto}
+      CIPHER_POLL_INTERVAL: ${CIPHER_POLL_INTERVAL:-5}
+      CIPHER_PASSWORD: ${CIPHER_CLI_1_PASSWORD:?Set CIPHER_CLI_1_PASSWORD in .env}
+    volumes:
+      - cipher-cli-1-data:/home/cipher/.cipher
+      - cipher-cli-1-downloads:/home/cipher/Downloads
+      - type: bind
+        source: ./cipher-cli-docker-bundle.json
+        target: /config/cipher-bundle.json
+        read_only: true
+
+  # ── Cipher CLI Node 2 (v0.2.5, internal bridge only, zero exposed host ports) ──
+  cipher-cli-2:
+    <<: *cipher-cli-common
+    container_name: cipher-cli-2
+    environment:
+      CIPHER_DIR: /home/cipher/.cipher
+      CIPHER_NETWORK_BUNDLE: /config/cipher-bundle.json
+      CIPHER_TRANSPORT_MODE: ${CIPHER_TRANSPORT_MODE:-auto}
+      CIPHER_POLL_INTERVAL: ${CIPHER_POLL_INTERVAL:-5}
+      CIPHER_PASSWORD: ${CIPHER_CLI_2_PASSWORD:?Set CIPHER_CLI_2_PASSWORD in .env}
+    volumes:
+      - cipher-cli-2-data:/home/cipher/.cipher
+      - cipher-cli-2-downloads:/home/cipher/Downloads
+      - type: bind
+        source: ./cipher-cli-docker-bundle.json
+        target: /config/cipher-bundle.json
+        read_only: true
+
+networks:
+  tks-bridge:
+    driver: bridge
+
+volumes:
+  tks-data-fullnode:
+  tks-data-validator1:
+  tks-data-validator2:
+  cipher-cli-1-data:
+  cipher-cli-1-downloads:
+  cipher-cli-2-data:
+  cipher-cli-2-downloads:

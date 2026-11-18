@@ -4,6 +4,20 @@ Professional changelog for [GitHub Releases](https://github.com/TokenKickstarter
 
 ---
 
+## v0.1.28
+
+**Relay ECDSA auth, SSRF elimination, & per-IP rate limiting** — closes unauthenticated mailbox tampering/WS hijacking and removes the legacy `/relay` SSRF `RpcProxy` path.
+
+### Security & Hardening
+
+- **`cipher-relay` (`security.rs`, `lib.rs`, `signal.rs`):**
+  - **Eliminate `/relay` `RpcProxy` SSRF:** disable `RelayRequest::RpcProxy` (`403` / `"RpcProxy disabled for security"`), preventing arbitrary internal POST forwarding.
+  - **ECDSA wallet ownership auth (`CIPHER_REQUIRE_CLIENT_SIG`, default `true`):** verify `secp256k1` `TKS-CIPHER-AUTH-V1` signatures (`X-TKS-Ts` / `X-TKS-Sig`, 5-minute replay window) across private `/fetch`, all `/ack` (including `peer-dir-v1:*` directory bundles), `/register`, `/relay`, and `GET /ws?addr=...&ts=...&sig=...`; keeps `0000...` relay probe and read-only `peer-dir-v1:*` discovery lookups compatible.
+  - **Rate limiting & memory/mailbox bounds:** trusted-proxy IP extraction (only honoring `X-Real-IP` / `X-Forwarded-For` from loopback), per-IP fixed-window rate limiter (`CIPHER_RATE_LIMIT_PER_MIN`, `429`), `MAX_CHUNKS_PER_RECIPIENT = 2000`, `MAX_WS_CONN_PER_IP = 32`, bounded `SignalHub` session/queue tables, and per-socket WS frame throttling (`120` msgs / `10s`).
+  - **Docker / Compose defaults:** updated [network/docker-compose-3nodes-2cli.yml](network/docker-compose-3nodes-2cli.yml) with `--rpc-rate-limit`, `--rpc-max-connections`, `--rpc-max-batch-request-len`, strict `127.0.0.1` bindings, and Nginx route hardening ([network/nginx/relay.tokenkickstarter.com.conf](network/nginx/relay.tokenkickstarter.com.conf)).
+
+---
+
 ## v0.1.27
 
 **Security hardening & release deploy fix** — locks down reverse-proxied relay/shard endpoints, bounds HTTP/WS body sizes, adds SSRF guards on mesh fanout, and defaults standalone binaries to `127.0.0.1` binding.
